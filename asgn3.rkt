@@ -44,10 +44,6 @@
      (FundefC name (check-args (cast args (Listof Symbol))) (parse body))]
     [(list 'def (? symbol? name) (list (list (? symbol? args) ...) '=> body))
      (FundefC name (check-args (cast args (Listof Symbol))) (parse body))]
-    [(list 'def (? symbol? name) (list '() '=> (list body ...)))
-     (FundefC name '() (parse body))]
-    [(list 'def (? symbol? name) (list '() '=> body))
-     (FundefC name '() (parse body))]
     [other (error 'parse-fundef "[AAQZ] invalid function definition: ~e" other)]))
 
 ; parse an s-expression into a list of function defs
