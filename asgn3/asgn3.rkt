@@ -118,3 +118,62 @@
 (check-equal? (top-interp '{{def f {(x) => x}}
                             {def main {() => {ifleq0? {f -1} {* 1 2} {f {/ 1 2}}}}}})
               2)
+
+; Tests for NumC and BinopC
+(check-equal? (top-interp '{{def main {() => {+ 2 3}}}}) 5)
+(check-equal? (top-interp '{{def main {() => {* 3 4}}}}) 12)
+(check-equal? (top-interp '{{def main {() => {/ 6 2}}}}) 3)
+(check-equal? (top-interp '{{def main {() => {- 10 3}}}}) 7)
+
+; Tests for AppC
+(check-equal? (top-interp '{{def f {(x) => {+ x 1}}}
+                           {def main {() => {f 5}}}}) 6)
+(check-equal? (top-interp '{{def f {(x y) => {* x y}}}
+                           {def main {() => {f 3 4}}}}) 12)
+
+; Tests for parse-fundef
+(check-equal? (parse-fundef '(def f (x y) => (+ x y)))
+              (FundefC 'f (list 'x 'y) (BinopC '+ (IdC 'x) (IdC 'y))))
+(check-equal? (parse-fundef '(def f (x) => (* x x)))
+              (FundefC 'f (list 'x) (BinopC '* (IdC 'x) (IdC 'x))))
+(check-equal? (parse-fundef '(def f () => 42))
+              (FundefC 'f '() (NumC 42)))
+(check-equal? (parse-fundef '(def f (x) => (list x (+ x 1))))
+              (FundefC 'f (list 'x) (AppC 'list (list (IdC 'x) (BinopC '+ (IdC 'x) (NumC 1))))))
+(check-exn exn:fail?
+           (lambda ()
+             (parse-fundef '(def f (x x) => (+ x y)))))
+(check-exn exn:fail?
+           (lambda ()
+             (parse-fundef '(def f (x) => (x 1)))))
+(check-exn exn:fail?
+           (lambda ()
+             (parse-fundef '(def f => (+ x y)))))
+
+; Tests for subst
+(check-equal? (subst (NumC 10) 'x (IdC 'x))
+              (NumC 10))
+(check-equal? (subst (NumC 10) 'x (BinopC '+ (IdC 'x) (NumC 5)))
+              (BinopC '+ (NumC 10) (NumC 5)))
+(check-equal? (subst (NumC 10) 'y (IdC 'x))
+              (IdC 'x))
+(check-equal? (subst (NumC 10) 'x (Ifleq0?C (IdC 'x) (NumC 1) (NumC 2)))
+              (Ifleq0?C (NumC 10) (NumC 1) (NumC 2)))
+; uncomment to test for [(AppC f a) (AppC f (map (lambda ([exp : ExprC]) subst what for exp) a))]
+#;(check-equal? (subst (NumC 10) 'x (AppC 'f (list (IdC 'x))))
+              (AppC 'f (list (NumC 10)))) 
+
+; Tests for get-fundef
+(define funs (list (FundefC 'f '() (NumC 5)) (FundefC 'g '() (NumC 10))))
+(define funs2 (list (FundefC 'a '() (NumC 1)) (FundefC 'b '() (NumC 2))))
+(check-equal? (get-fundef 'f funs)(FundefC 'f '() (NumC 5)))
+(check-equal? (get-fundef 'g funs)(FundefC 'g '() (NumC 10)))
+(check-equal? (get-fundef 'a funs2)(FundefC 'a '() (NumC 1)))
+
+; Tests for Ifleq0?C
+(check-equal? (top-interp '{{def main {() => {ifleq0? -1 10 5}}}}) 10)
+(check-equal? (top-interp '{{def main {() => {ifleq0? 1 10 5}}}}) 5)
+(check-equal? (top-interp '{{def main {() => {ifleq0? 1 10 5}}}}) 5)
+
+
+
