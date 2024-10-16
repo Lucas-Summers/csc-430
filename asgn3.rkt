@@ -110,8 +110,8 @@
 
 ; TEST CASES (need more)
 (check-equal? (top-interp '{{def f {(x y) => {+ x y}}}
-                            {def main {() => {f 1 2}}}})
-              3)
+                            {def main {() => {f (+ 1 2) 2}}}})
+              5)
 (check-equal? (top-interp '{{def f {() => 5}}
                             {def main {() => {+ {f} {f}}}}})
               10)
@@ -160,8 +160,8 @@
 (check-equal? (subst (NumC 10) 'x (Ifleq0?C (IdC 'x) (NumC 1) (NumC 2)))
               (Ifleq0?C (NumC 10) (NumC 1) (NumC 2)))
 ; uncomment to test for [(AppC f a) (AppC f (map (lambda ([exp : ExprC]) subst what for exp) a))]
-#;(check-equal? (subst (NumC 10) 'x (AppC 'f (list (IdC 'x))))
-              (AppC 'f (list (NumC 10)))) 
+;;(check-equal? (subst (NumC 10) 'x (AppC 'f (list (IdC 'x))))
+;;              (AppC 'f (list (NumC 10))))
 
 ; Tests for get-fundef
 (define funs (list (FundefC 'f '() (NumC 5)) (FundefC 'g '() (NumC 10))))
