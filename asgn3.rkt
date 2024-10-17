@@ -62,7 +62,7 @@
     [(IdC s) (cond
                [(symbol=? s for) what]
                [else in])]
-    [(AppC f a) (AppC f (map (lambda ([exp : ExprC]) subst what for exp) a))]
+    [(AppC f a) (AppC f (map (lambda ([exp : ExprC]) (subst what for exp)) a))]
     [(BinopC op l r) (BinopC op (subst what for l)
                                 (subst what for r))]
     [(Ifleq0?C test then else) (Ifleq0?C (subst what for test)
@@ -89,9 +89,9 @@
     [(AppC f a) (define fd (get-fundef f funs))
                 (if (equal? (length (FundefC-args fd)) (length a))
                     (interp (foldl (lambda ([arg : Symbol] [param : ExprC] [body : ExprC])
-                                             (subst param arg body))
+                                             (subst (NumC (interp param funs)) arg body))
                                            (FundefC-body fd) (FundefC-args fd) a) funs)
-                    (error 'interp "[AAQZ] wrong arity: ~e" (FundefC-name fd)))]))
+                    (error 'interp "[AAQZ] wrong arity: ~e" f))]))
 
 ; given a list of function defs, interpret the function named main
 ; if main function def isn't found, throw an error
@@ -125,7 +125,10 @@
 (check-equal? (top-interp '{{def f {(x) => x}}
                             {def main {() => {ifleq0? {f -1} {* 1 2} {f {/ 1 2}}}}}})
               2)
-
+(check-equal? (top-interp '{{def r {(b) => b}}
+                            {def f {(x) => (r {+ x 1})}}
+                            {def main {() => {+ {f 1} {f 1}}}}})
+              4)
 ; Tests for NumC and BinopC
 (check-equal? (top-interp '{{def main {() => {+ 2 3}}}}) 5)
 (check-equal? (top-interp '{{def main {() => {* 3 4}}}}) 12)
@@ -208,3 +211,4 @@
 (check-exn exn:fail?
            (lambda ()
              (interp-fns (list (FundefC 'f '() (NumC 5))))))
+
