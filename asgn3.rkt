@@ -1,4 +1,6 @@
 ; Full project implemented
+; Muzart Tuman and Lucas Summers
+; mtuman and (add yours lucas)
 
 #lang typed/racket
 (require typed/rackunit)
@@ -93,12 +95,21 @@
 
 ; given a list of function defs, interpret the function named main
 ; if main function def isn't found, throw an error
-(define (interp-fns [funs : (Listof FundefC)]) : Real
+#;(define (interp-fns [funs : (Listof FundefC)]) : Real
   (define main
     (first (filter (lambda ([f : FundefC]) (equal? (FundefC-name f) 'main)) funs)))
   (if (empty? main)
       (error 'interp-fns "[AAQZ] no main function provided")
       (interp (FundefC-body main) funs)))
+; old one above
+
+(define (interp-fns [funs : (Listof FundefC)]) : Real
+  (define main
+    (filter (lambda ([f : FundefC]) (equal? (FundefC-name f) 'main)) funs))
+  (if (empty? main)
+      (error 'interp-fns "[AAQZ] no main function provided")
+      (interp (FundefC-body (first main)) funs)))
+
 
 ; given an s-expression, combine parsing and evaluation
 (define (top-interp [fun-sexps : Sexp]) : Real
@@ -170,3 +181,30 @@
 (check-equal? (top-interp '{{def main {() => {ifleq0? -1 10 5}}}}) 10)
 (check-equal? (top-interp '{{def main {() => {ifleq0? 1 10 5}}}}) 5)
 (check-equal? (top-interp '{{def main {() => {ifleq0? 1 10 5}}}}) 5)
+
+; Error tests
+(check-exn exn:fail?
+           (lambda ()
+             (top-interp '{{def main {() => {@ 1 2}}}})))
+(check-exn exn:fail?
+           (lambda ()
+             (top-interp '{{def f {(x) => x}}
+                          {def main {() => {f 1 2}}}})))
+(check-exn exn:fail?
+           (lambda ()
+             (top-interp '{{def main {() => {+ x 1}}}})))
+(check-exn exn:fail?
+           (lambda ()
+             (parse-prog '((1 2 3)))))
+(check-exn exn:fail?
+           (lambda ()
+             (parse-prog '(+ 1 2))))
+(check-exn exn:fail?
+           (lambda ()
+             (parse '(1 2 3) )))
+(check-exn exn:fail?
+           (lambda ()
+             (interp (BinopC '^ (NumC 2) (NumC 3)) '())))
+(check-exn exn:fail?
+           (lambda ()
+             (interp-fns (list (FundefC 'f '() (NumC 5))))))
