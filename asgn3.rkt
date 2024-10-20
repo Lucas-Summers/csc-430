@@ -9,7 +9,7 @@
 (struct NumC ([n : Real]) #:transparent)
 ; defines a binary operator (which uses rackets implementation of +, -, *, and /)
 (struct BinopC ([op : Symbol] [l : ExprC] [r : ExprC]) #:transparent)
-(define ops (make-immutable-hash
+(define binops (make-immutable-hash
              (list
               (cons '+ +)
               (cons '* *)
@@ -29,11 +29,11 @@
   (interp-fns (parse-prog fun-sexps)))
 
 ; given a list of function defs, interpret the function named main
-; if main function def isn't provided, throw an error
+; if there isn't exact one main function def, throw an error
 (define (interp-fns [funs : (Listof FundefC)]) : Real
   (define mainf (filter (lambda ([f : FundefC]) (equal? (FundefC-name f) 'main)) funs))
-  (if (empty? mainf)
-      (error 'interp-fns "[AAQZ] no main function provided")
+  (if (or (empty? mainf) (> (length mainf) 1))
+      (error 'interp-fns "[AAQZ] can only have one main defined")
       (interp (FundefC-body (first mainf)) funs)))
 
 ; parse an s-expression into a list of function defs
@@ -47,9 +47,11 @@
 (define (parse-fundef [s : Sexp]) : FundefC
   (match s
     [(list 'def (? symbol? name) (list (list (? symbol? args) ...) '=> (list body ...)))
-     (FundefC name (check-args (cast args (Listof Symbol))) (parse body))]
+     ; cast must succeed...
+     (FundefC (valid-id? name) (check-args (cast args (Listof Symbol))) (parse body))]
     [(list 'def (? symbol? name) (list (list (? symbol? args) ...) '=> body))
-     (FundefC name (check-args (cast args (Listof Symbol))) (parse body))]
+     ; cast must succeed...
+     (FundefC (valid-id? name) (check-args (cast args (Listof Symbol))) (parse body))]
     [other (error 'parse-fundef "[AAQZ] invalid function definition: ~e" other)]))
 
 ; parse an s-expression into an ExprC
@@ -57,29 +59,33 @@
   (match s
     [(? real? n) (NumC n)]
     [(list (? symbol? op) l r) (cond
-                                 [(hash-has-key? ops op) (BinopC op (parse l) (parse r))]
-                                 [else (AppC op (list (parse l) (parse r)))])]
+                                 [(hash-has-key? binops op) (BinopC op (parse l) (parse r))]
+                                 [else (AppC (valid-id? op) (list (parse l) (parse r)))])]
     [(list 'ifleq0? test then else) (Ifleq0?C (parse test) (parse then) (parse else))]
-    [(? symbol? s) (IdC s)]
-    [(list (? symbol? f) a ...) (AppC f (map parse a))]
+    [(? symbol? s) (IdC (valid-id? s))]
+    [(list (? symbol? f) a ...) (AppC (valid-id? f) (map parse a))]
     [other (error 'parse "[AAQZ] syntax error: ~e" other)]))
 
 ; interpret an ExprC using the list of function defs to resolve applications
 (define (interp [expr : ExprC] [funs : (Listof FundefC)]) : Real
   (match expr
     [(NumC n) n]
-    [(BinopC op l r) ((hash-ref ops op (lambda () (error 'interp "[AAQZ] undefined operator: ~e" op)))
-                                       (interp l funs) (interp r funs))]
+    [(BinopC op l r) (with-handlers
+                       ([exn:fail? (lambda ([e : exn]) (error 'interp "[AAQZ] ~e" (exn-message e)))])
+                       (define opfun (hash-ref binops op
+                                  (lambda () (error 'interp "[AAQZ] undefined operator: ~e" op))))
+                       (opfun (interp l funs) (interp r funs)))]
     [(Ifleq0?C test then else) (if (<= (interp test funs) 0)
                                    (interp then funs)
                                    (interp else funs))]
     [(IdC s) (error 'interp "[AAQZ] unbound identifier: ~e" s)]
-    [(AppC f a) (define fd (get-fundef f funs))
-                (if (equal? (length (FundefC-args fd)) (length a))
-                    (interp (foldl (lambda ([param : Symbol] [arg : ExprC] [body : ExprC])
-                                           (subst (NumC (interp arg funs)) param body))
-                                   (FundefC-body fd) (FundefC-args fd) a)
-                            funs)
+    [(AppC f a) (define fun (get-fundef f funs))
+                (if (equal? (length (FundefC-args fun)) (length a))
+                    (interp
+                     (foldl (lambda ([param : Symbol] [arg : ExprC] [body : ExprC])
+                              (subst (NumC (interp arg funs)) param body))
+                            (FundefC-body fun) (FundefC-args fun) a)
+                     funs)
                     (error 'interp "[AAQZ] wrong arity: ~e" f))]))
 
 ; recursively replaces symbol 'for' in the ExprC 'in' with the ExprC 'what'
@@ -96,11 +102,19 @@
                                          (subst what for then)
                                          (subst what for else))]))
 
-; given a list of args, return the list of all arg Symbols are unique, else throw an error
+; check if the given symbol is a valid id under the AAQZ language
+; if it is, return the symbol, else throw an error
+(define (valid-id? [s : Symbol]) : Symbol
+  (if (member s '(* + - / def ifleq0? =>))
+      (error 'valid-id? "[AAQZ] id ~e not permitted" s)
+      s))
+
+; given a list of args, return the list if all arg Symbols are unique and valid ids
+; else, throw an error
 (define (check-args [args : (Listof Symbol)]) : (Listof Symbol)
   (match args
     ['() '()]
-    [(cons f r) (if (member f r)
+    [(cons f r) (if (member (valid-id? f) r)
                     (error 'parse-fundef "[AAQZ] duplicate argument names: ~e" f)
                     (cons f (check-args r)))]))
 
@@ -112,7 +126,8 @@
     [(cons f r) (if (equal? n (FundefC-name f)) f (get-fundef n r))]))
 
 
-; TEST CASES (need more)
+; TEST CASES
+; general functionality tests
 (check-equal? (top-interp '{{def f {(x y) => {+ x y}}}
                             {def main {() => {f (+ 1 2) 2}}}})
               5)
@@ -147,12 +162,6 @@
               (FundefC 'f '() (NumC 42)))
 (check-equal? (parse-fundef '(def f ((x) => (list x (+ x 1)))))
               (FundefC 'f (list 'x) (AppC 'list (list (IdC 'x) (BinopC '+ (IdC 'x) (NumC 1))))))
-(check-exn exn:fail?
-           (lambda ()
-             (parse-fundef '(def f ((x x) => (+ x y))))))
-(check-exn exn:fail?
-           (lambda ()
-             (parse-fundef '(def f => (+ x y)))))
 
 ; Tests for subst
 (check-equal? (subst (NumC 10) 'x (IdC 'x))
@@ -202,3 +211,26 @@
 (check-exn exn:fail?
            (lambda ()
              (interp-fns (list (FundefC 'f '() (NumC 5))))))
+(check-exn exn:fail?
+           (lambda ()
+             (parse-fundef '(def f ((x x) => (+ x y))))))
+(check-exn exn:fail?
+           (lambda ()
+             (parse-fundef '(def f => (+ x y)))))
+(check-exn exn:fail?
+           (lambda ()
+             (top-interp '{{def main {() => 5}}
+                           {def main {() => 5}}})))
+(check-exn exn:fail?
+           (lambda ()
+             (top-interp '{{def f {(a) => 5}}
+                           {def main {() => {f 2}}}
+                           {def main {() => 5}}})))
+(check-exn exn:fail? (lambda () (parse '{/ 3 4 5})))
+(check-exn exn:fail? (lambda () (parse '{=> 3 4})))
+(check-exn exn:fail? (lambda () (parse '{ifleq0? 1 3 4 5})))
+(check-exn exn:fail? (lambda () (parse-fundef '{def => ((x) => (+ 3 4))})))
+(check-exn exn:fail? (lambda () (parse-fundef '{def f ((*) => (+ 3 4))})))
+
+(check-exn exn:fail? (lambda () (top-interp '((def ignoreit ((x) => (+ 3 4)))
+                                              (def main (() => (ignoreit (/ 1 (+ 0 0)))))))))
