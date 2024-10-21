@@ -14,7 +14,12 @@
               (cons '+ +)
               (cons '* *)
               (cons '/ /)
-              (cons '- -))))
+              (cons '- -)
+              (cons '<= <=)
+              (cons 'equal? equal?)
+              (cons 'true true)
+              (cons 'false false)
+              (cons 'error error)))
 ; defines an "if less than or equal to 0" conditional
 (struct Ifleq0?C ([test : ExprC] [then : ExprC] [else : ExprC]) #:transparent)
 ; defines an identifier
@@ -125,6 +130,32 @@
     ['() (error 'interp "[AAQZ] reference to undefined function: ~e" n)]
     [(cons f r) (if (equal? n (FundefC-name f)) f (get-fundef n r))]))
 
+; Serialize any AAQZ value into a string
+(define (serialize [val : Any]) : String
+  (cond
+    [(number? val) (format "~v" val)]
+    [(eq? val true) "true"]
+    [(eq? val false) "false"]
+    [(string? val) (format "\"~a\"" val)]
+    [(procedure? val) "#<procedure>"]
+    ; Primitive operators
+    [(symbol? val) (if (hash-has-key? binops val) "#<primop>" (symbol->string val))]
+    [(NumC? val) (serialize (NumC-n val))]
+    [(BinopC? val) (format "(~a ~a ~a)"
+                           (serialize (BinopC-op val))
+                           (serialize (BinopC-l val))
+                           (serialize (BinopC-r val)))]
+    [(Ifleq0?C? val) (format "(ifleq0? ~a ~a ~a)"
+                             (serialize (Ifleq0?C-test val))
+                             (serialize (Ifleq0?C-then val))
+                             (serialize (Ifleq0?C-else val)))]
+    [(IdC? val) (serialize (IdC-s val))]
+    [(AppC? val) (format "(~a ~a)"
+                         (serialize (AppC-fun val))
+                         (string-join (map serialize (AppC-args val)) " "))]
+    [else (error 'serialize "Cannot serialize [AAQZ] value: ~e" val)]))
+
+  
 
 ; TEST CASES
 ; general functionality tests
