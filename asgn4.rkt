@@ -95,6 +95,7 @@
   (match expr
     [(NumV n) (NumV n)]
     [(IdC s) (lookup s env)]
+    [(LamC a b) (ClosV a b env)]
     [(AppC f a) (define f-val (interp f env))
                 (match f-val
                   [(ClosV args body env)
@@ -136,21 +137,7 @@
 
 ; TEST CASES
 (serialize (interp (AppC (IdC '+) (list (NumV 10) (NumV 15))) top-env))
-;(serialize (interp ('+ (NumV 10) (NumV 5)) (install-top-env prims)))
-;(serialize (interp ('+ (NumV 10) (AppC 'const5 (list (NumV 10))))
-                  ;       (install-top-env prims)
-                 ;        (list (FundefC 'const5 '(_) (NumV 5)))))
-
-;(check-equal? (interp (BinopC '+ (NumC 10) (AppC 'double (list (BinopC '+ (NumC 1) (NumC 2)))))
-;                        mt-env
-;                        (list (FundefC 'double '(x) (BinopC '+ (IdC 'x) (IdC 'x)))))
-;                16)
-;(check-equal? (interp (BinopC '+ (NumC 10) (AppC 'double (list (BinopC '+ (NumC 1) (NumC 2)))))
-;                        mt-env
-;                        (list (FundefC 'double '(x) (BinopC '+ (IdC 'x) (IdC 'x)))))
-;                16)
-
-;(interp (AppC 'f1 (list (NumC 3)))
-;                  mt-env
-;                  (list (FundefC 'f1 '(x) (AppC 'f2 (list (NumC 4))))
-;                        (FundefC 'f2 '(y) (BinopC '+ (IdC 'x) (IdC 'y)))))
+(serialize (interp (AppC
+                    (LamC '(a b)
+                          (AppC (IdC '+) (list (IdC 'a) (IdC 'b))))
+                    (list (NumV 10) (NumV 15))) top-env))
