@@ -47,7 +47,7 @@
         ['* (NumV (* (NumV-n l) (NumV-n r)))]
         ['/ (NumV (/ (NumV-n l) (NumV-n r)))]
         ['<= (BoolV (<= (NumV-n l) (NumV-n r)))])]
-    [(symbol=? s 'equal?) (if (or (or (PrimV? l) (ClosV? l)) (or (PrimV? r) (ClosV? r)))
+    [(symbol=? s 'equal?) (if (or (or (PrimV? l) (ClosV? l)) (or (PrimV? r) (ClosV? r))) ;confused here - muzart
                               (error 'arith "[AAQZ]: cannot compare closures or primitives")
                               (BoolV (equal? l r)))]
     [else (error 'arith "[AAQZ] at least on argument was not a number")]))
@@ -77,6 +77,20 @@
 ;    [(? symbol? s) (IdC (valid-id? s))]
 ;    [(list (? symbol? f) a ...) (AppC (valid-id? f) (map parse a))]
 ;    [other (error 'parse "[AAQZ] syntax error: ~e" other)]))
+#;(define (parse [s : Sexp]) : ExprC
+  (match s
+    [(? real? n) (NumV n)] ; Numbers become NumV
+    [(? symbol? sym) (IdC (valid-id? sym))] ; Symbols become IdC
+    [(list (? symbol? f) a ...) ; Function application
+     (match f
+       ['lambda 
+        (match a
+          [(list args body) 
+           (LamC (check-args args) (parse body))] ; Lambda function
+          [other (error 'parse "[AAQZ] invalid lambda syntax: ~e" other)])]
+       [else (AppC (IdC (valid-id? f)) (map parse a))])] ; Function application
+    [other (error 'parse "[AAQZ] syntax error: ~e" other)]))
+; my take on parse
 
 (define (bind [n : Symbol] [v : Value]) : Binding
   (Binding n v))
