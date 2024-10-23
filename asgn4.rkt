@@ -79,17 +79,32 @@
 ;    [other (error 'parse "[AAQZ] syntax error: ~e" other)]))
 #;(define (parse [s : Sexp]) : ExprC
   (match s
-    [(? real? n) (NumV n)] ; Numbers become NumV
-    [(? symbol? sym) (IdC (valid-id? sym))] ; Symbols become IdC
-    [(list (? symbol? f) a ...) ; Function application
+    ; Numbers to NumV
+    [(? real? n) (NumV n)]
+    
+    ; Strings to StringV
+    [(? string? str) (StringV str)]
+    
+    ; Bools to BoolV
+    ['true (BoolV #t)]
+    ['false (BoolV #f)]
+    
+    ;; Symbols to IdC
+    [(? symbol? sym) (IdC (valid-id? sym))]
+    
+    ;; Function applications
+    [(list (? symbol? f) a ...)
      (match f
-       ['lambda 
+       ['lambda
         (match a
-          [(list args body) 
-           (LamC (check-args args) (parse body))] ; Lambda function
+          [(list args body)
+           (AppC (ClosV args (parse body) '()) (map parse args))]
           [other (error 'parse "[AAQZ] invalid lambda syntax: ~e" other)])]
-       [else (AppC (IdC (valid-id? f)) (map parse a))])] ; Function application
+       [else (AppC (IdC (valid-id? f)) (map parse a))])]
+    
+    ;; Error handling for unrecognized forms
     [other (error 'parse "[AAQZ] syntax error: ~e" other)]))
+
 ; my take on parse
 
 (define (bind [n : Symbol] [v : Value]) : Binding
