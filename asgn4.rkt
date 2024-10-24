@@ -73,11 +73,11 @@
   (match expr
     [(NumV n) (NumV n)]
     [(IdC s) (lookup s env)]
+    [(StringV s) (StringV s)]
     [(LamC a b) (ClosV a b env)]
     [(IfC test then else) (match (interp test env)
-                            [(? BoolV? t) (if (equal? t (BoolV #t))
-                                              (interp then env)
-                                              (interp else env))]
+                            [(BoolV #t) (interp then env)]
+                            [(BoolV #f) (interp else env)]
                             [other (error 'interp "[AAQZ] non-Boolean test in if statement: ~e"
                                            (serialize other))])]
     [(AppC f a) (match (interp f env)
@@ -101,9 +101,8 @@
      (error 'interp "[AAQZ] user-error: ~e" (serialize s))]
     [(cons 'equal? (list x y))
      (match (cons x y)
-       [(cons (or (? PrimV?) (? ClosV?))
-              (or (? PrimV?) (? ClosV?)))
-        (BoolV #f)]
+       [(cons (PrimV v1) (PrimV v2)) (BoolV (symbol=? v1 v2))]
+       [(cons (or (? PrimV?) (? ClosV?)) (or (? PrimV?) (? ClosV?))) (BoolV #f)]
        [other (BoolV (equal? x y))])]
     [(cons arith (list x y))
      (match (cons x y)
@@ -124,7 +123,7 @@
     [(NumV n) (format "~v" n)]
     [(BoolV #f) "false"]
     [(BoolV #t) "true"]
-    [(StringV s) (format "\"~v\"" s)]
+    [(StringV s) (format "~a" s)]
     [(? ClosV?) "#<procedure>"]
     [(? PrimV?) "#<primop>"]))
 
@@ -154,7 +153,6 @@
                     (error 'parse "[AAQZ] duplicate argument names: ~e" f)
                     (cons f (check-args r)))]))
 
-
 ; TEST CASES
 (serialize (interp (AppC (IdC '+) (list (NumV 10) (NumV 15))) top-env))
 (serialize (interp (AppC
@@ -170,3 +168,80 @@
                                1
                                {* n {self self {- n 1}}}}}]
       {fact fact 4}})
+
+;(serialize (interp (IfC (IdC 'true) (NumV 1) (NumV 0)) top-env))
+; interp: [AAQZ] non-Boolean test in if statement: "#<primop>"
+
+(serialize (interp (AppC (IdC '-) (list (NumV 20) (NumV 5))) top-env))
+
+(serialize (interp (AppC (IdC '*) (list (NumV 3) (NumV 4))) top-env))
+
+#;(serialize (interp (AppC (LamC '(x y) (AppC (IdC '+) (list (IdC 'x) (IdC 'y))))
+                        (list (NumV 1))) top-env))
+; Expected: Error for wrong arity, works but errors out lol
+
+;(serialize (interp (AppC (IdC 'equal?) (list (NumV 5) (BoolV #true))) top-env))
+; message:  match: no matching clause for (BoolV #t)
+
+(top-interp '{bind [double = {(x) => {* x 2}}]
+      [y = 6]
+      {double y}})
+
+;(serialize (interp (IfC (NumV 1) (NumV 5) (NumV 10)) top-env))
+; Expected: Error for non-Boolean test in if statement works but errors out
+
+(check-equal? (serialize (interp (parse 'true) top-env)) "#<primop>")
+
+(check-equal? (serialize (interp (parse 'false) top-env)) "#<primop>")
+
+(check-equal? (serialize (interp (parse "\"Hello\"") top-env)) "\"Hello\"")
+
+(check-equal? (serialize (interp (AppC (IdC 'equal?) (list (IdC 'true) (IdC 'true))) top-env)) "true")
+
+(check-equal? (serialize (interp (AppC (IdC 'equal?) (list (IdC 'true) (IdC 'false))) top-env)) "false")
+
+(check-equal? (serialize (interp (AppC (IdC 'equal?) (list (StringV "abc") (StringV "abc"))) top-env)) "true")
+
+(check-equal? (serialize (interp (AppC (IdC 'equal?) (list (StringV "abc") (StringV "xyz"))) top-env)) "false")
+
+(check-equal? (serialize (interp (AppC (IdC '/) (list (NumV 10) (NumV 2))) top-env)) "5")
+
+(check-equal? (serialize
+               (interp (AppC (LamC '(x)
+                                  (AppC (IdC '+) (list (IdC 'x) (NumV 5))))
+                             (list (NumV 10))) top-env))
+              "15")
+
+(check-equal? (serialize (ClosV '(x) (AppC (IdC '+) (list (IdC 'x) (NumV 5))) '())) "#<procedure>")
+
+(check-equal? (serialize (PrimV '+)) "#<primop>")
+
+; Error tests
+(check-exn exn:fail?
+           (lambda ()
+             (parse 'bind)))
+
+(check-exn exn:fail?
+           (lambda ()
+             (parse '(bind [f = {(x x) => {+ x 1}}]))))
+
+(check-exn exn:fail?
+           (lambda ()
+             (interp (AppC (LamC '(x y) (AppC (IdC '+) (list (IdC 'x) (IdC 'y))))
+                           (list (NumV 1))) top-env)))
+
+(check-exn exn:fail?
+           (lambda ()
+             (interp (IfC (NumV 1) (NumV 5) (NumV 10)) top-env)))
+
+(check-exn exn:fail?
+           (lambda ()
+             (interp (AppC (NumV 5) (list (NumV 10))) top-env)))
+
+(check-exn exn:fail?
+           (lambda ()
+             (interp (AppC (IdC '+) (list (StringV "hello") (NumV 5))) top-env)))
+
+(check-exn exn:fail?
+           (lambda ()
+             (interp (AppC (IdC '/) (list (NumV 10) (NumV 0))) top-env)))
