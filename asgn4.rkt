@@ -216,6 +216,17 @@
 
 (check-equal? (serialize (PrimV '+)) "#<primop>")
 
+;Handle-prims
+(check-equal? (handle-prims 'true '()) (BoolV #t))
+
+(check-equal? (handle-prims 'false '()) (BoolV #f))
+
+(check-equal? (handle-prims 'equal? (list (PrimV '+) (PrimV '+))) (BoolV #t))
+
+(check-equal? (handle-prims 'equal? (list (PrimV '+) (PrimV '-))) (BoolV #f))
+
+(check-equal? (handle-prims 'equal? (list (ClosV '(x) (IdC 'x) '()) (ClosV '(x) (IdC 'x) '()))) (BoolV #f))
+
 ; Error tests
 (check-exn exn:fail?
            (lambda ()
@@ -245,3 +256,19 @@
 (check-exn exn:fail?
            (lambda ()
              (interp (AppC (IdC '/) (list (NumV 10) (NumV 0))) top-env)))
+
+(check-exn exn:fail?
+           (lambda ()
+             (interp (AppC (IdC '+) (list (NumV 1))) top-env)))
+
+(check-exn exn:fail?
+           (lambda ()
+             (lookup 'nonexistent-symbol top-env)))
+
+(check-exn exn:fail?
+           (lambda ()
+             (check-args '(x x))))
+
+
+
+
