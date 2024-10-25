@@ -3,17 +3,15 @@
 #lang typed/racket
 (require typed/rackunit)
 
-; defines a lexical environment
+; defines an environment
 (define-type Env (Listof Binding))
-
-; defines an environment binding
+; defines a binding within an evironment
 (struct Binding ([name : Symbol] [val : Value]) #:transparent)
 (define mt-env '()) ; empty environment
-(define extend-env cons) ; addas to environment list (for easier readability)
+(define extend-env cons) ; add a binding to an environment
 
 ; defines a value type
 (define-type Value (U NumV BoolV StringV PrimV ClosV))
-
 ; defines a number value
 (struct NumV ([n : Real]) #:transparent)
 ; defines a string value
@@ -26,8 +24,7 @@
 (struct ClosV ([args : (Listof Symbol)] [body : ExprC] [env : Env]) #:transparent)
 
 ; defines an expression type
-(define-type ExprC (U Value IdC AppC LamC IfC)) ; remove Value?
-
+(define-type ExprC (U IdC AppC LamC IfC Value))
 ; defines an identifier
 (struct IdC ([s : Symbol]) #:transparent)
 ; defines a function application
@@ -40,8 +37,8 @@
 ; the top-level environment installed with primitive operations and true/false
 (define top-env
   (list
-   (Binding 'false (PrimV 'false))
-   (Binding 'true (PrimV 'true))
+   (Binding 'false (BoolV #f))
+   (Binding 'true (BoolV #t))
    (Binding '+ (PrimV '+))
    (Binding '* (PrimV '*))
    (Binding '- (PrimV '-))
@@ -50,25 +47,28 @@
    (Binding 'equal? (PrimV 'equal?))
    (Binding 'error (PrimV 'error))))
 
-; given an s-expression, combine parsing and evaluation to produced a result
+; given an s-expression, combines parsing and evaluation of AAQZ4 to produce a result as a string
 (define (top-interp [s : Sexp]) : String
   (serialize (interp (parse s) top-env)))
 
+; parses an s-expression into an AAQZ4 ExprC that can be interpreted
 (define (parse [s : Sexp]) : ExprC
   (match s
     [(? real? n) (NumV n)]
     [(? symbol? sym) (IdC (valid-id? sym))]
     [(? string? str) (StringV str)]
     [(list 'if test then else) (IfC (parse test) (parse then) (parse else))]
+    ; casts must succeed...
     [(list 'bind (list (? symbol? a) '= b) ... c) (AppC (LamC (check-args (cast a (Listof Symbol)))
                                                               (parse c))
                                                         (map parse (cast b (Listof Sexp))))]
+    ; cast must succeed...
     [(list (list (? symbol? a) ...) '=> b) (LamC (check-args (cast a (Listof Symbol)))
                                                  (parse b))]
     [(list f a ...) (AppC (parse f) (map parse a))]
     [other (error 'parse "[AAQZ] syntax error: ~e" other)]))
 
-
+; interprets an AAQZ4 ExprC given an environment of bindings to produce a Value
 (define (interp [expr : ExprC] [env : Env]) : Value
   (match expr
     [(NumV n) (NumV n)]
@@ -93,15 +93,17 @@
                   [other (error 'interp "[AAQZ] application of a non-closure: ~e"
                                 (serialize other))])]))
 
+; performs the AAQZ4 primitive operation corresponding to the given symbol on the
+; given list of Values, returning the result as a Value
 (define (handle-prims [op : Symbol] [args : (Listof Value)]) : Value
   (match (cons op args)
     [(cons 'true '()) (BoolV #t)]
     [(cons 'false '()) (BoolV #f)]
-    [(cons 'error (? StringV? s))
-     (error 'interp "[AAQZ] user-error: ~e" (serialize s))]
+    [(cons 'error (list x))
+     ; cast must succeed...
+     (error 'interp "[AAQZ] user-error: ~e" (serialize (cast x Value)))]
     [(cons 'equal? (list x y))
      (match (cons x y)
-       [(cons (PrimV v1) (PrimV v2)) (BoolV (symbol=? v1 v2))]
        [(cons (or (? PrimV?) (? ClosV?)) (or (? PrimV?) (? ClosV?))) (BoolV #f)]
        [other (BoolV (equal? x y))])]
     [(cons arith (list x y))
@@ -118,18 +120,22 @@
        [other (error 'interp "[AAQZ] arithmetic operation with non-number: ~e" arith)])]
     [other (error 'interp "[AAQZ] wrong arity for operation: ~e" op)]))
 
+; returns a string that is a readable form of the given Value
 (define (serialize [val : Value]) : String
   (match val
     [(NumV n) (format "~v" n)]
     [(BoolV #f) "false"]
     [(BoolV #t) "true"]
-    [(StringV s) (format "~a" s)]
+    [(StringV s) (format "~v" s)]
     [(? ClosV?) "#<procedure>"]
     [(? PrimV?) "#<primop>"]))
 
+; given a symbol and a Value, creates a Binding to be inserted into an environment
 (define (bind [n : Symbol] [v : Value]) : Binding
   (Binding n v))
 
+; for the given environment, finds the Binding with the name corresponding to the given symbol
+; and returns the binding's Value, else throws an error
 (define (lookup [for : Symbol] [env : Env]) : Value
   (match env
     ['() (error 'lookup "[AAQZ] id out of bounds: ~e" for)]
@@ -138,14 +144,14 @@
                                      (lookup for r))]))
 
 ; check if the given symbol is a valid id under the AAQZ4 language
-; if it is, return the symbol, else throw an error
+; if it is, returns the symbol, else throws an error
 (define (valid-id? [s : Symbol]) : Symbol
   (if (member s '(if => bind =))
       (error 'valid-id? "[AAQZ] id not permitted: ~e" s)
       s))
 
-; given a list of arg symbols, return the list if all symbols are unique and are also valid ids
-; else, throw an error
+; given a list of function arg symbols, returns the list if all symbols are unique
+; and are also valid ids under AAQZ4, else throws an error
 (define (check-args [args : (Listof Symbol)]) : (Listof Symbol)
   (match args
     ['() '()]
@@ -154,57 +160,25 @@
                     (cons f (check-args r)))]))
 
 ; TEST CASES
-(serialize (interp (AppC (IdC '+) (list (NumV 10) (NumV 15))) top-env))
-(serialize (interp (AppC
+; General
+(check-equal? (serialize (interp (AppC
                     (LamC '(a b)
                           (AppC (IdC '+) (list (IdC 'a) (IdC 'b))))
-                    (list (NumV 10) (NumV 15))) top-env))
+                    (list (NumV 10) (NumV 15))) top-env)) "25")
 
-(top-interp '{bind [f = {(x) => {+ x 1}}]
+(check-equal? (top-interp '{bind [f = {(x) => {+ x 1}}]
       [y = 7]
-      {f y}})
+      {f y}}) "8")
 
-(top-interp '{bind [fact = {(self n) => {if {<= n 0}
+; recursive test from in class
+(check-equal? (top-interp '{bind [fact = {(self n) => {if {<= n 0}
                                1
                                {* n {self self {- n 1}}}}}]
-      {fact fact 4}})
+      {fact fact 4}}) "24")
 
-;(serialize (interp (IfC (IdC 'true) (NumV 1) (NumV 0)) top-env))
-; interp: [AAQZ] non-Boolean test in if statement: "#<primop>"
-
-(serialize (interp (AppC (IdC '-) (list (NumV 20) (NumV 5))) top-env))
-
-(serialize (interp (AppC (IdC '*) (list (NumV 3) (NumV 4))) top-env))
-
-#;(serialize (interp (AppC (LamC '(x y) (AppC (IdC '+) (list (IdC 'x) (IdC 'y))))
-                        (list (NumV 1))) top-env))
-; Expected: Error for wrong arity, works but errors out lol
-
-;(serialize (interp (AppC (IdC 'equal?) (list (NumV 5) (BoolV #true))) top-env))
-; message:  match: no matching clause for (BoolV #t)
-
-(top-interp '{bind [double = {(x) => {* x 2}}]
+(check-equal? (top-interp '{bind [double = {(x) => {* x 2}}]
       [y = 6]
-      {double y}})
-
-;(serialize (interp (IfC (NumV 1) (NumV 5) (NumV 10)) top-env))
-; Expected: Error for non-Boolean test in if statement works but errors out
-
-(check-equal? (serialize (interp (parse 'true) top-env)) "#<primop>")
-
-(check-equal? (serialize (interp (parse 'false) top-env)) "#<primop>")
-
-(check-equal? (serialize (interp (parse "\"Hello\"") top-env)) "\"Hello\"")
-
-(check-equal? (serialize (interp (AppC (IdC 'equal?) (list (IdC 'true) (IdC 'true))) top-env)) "true")
-
-(check-equal? (serialize (interp (AppC (IdC 'equal?) (list (IdC 'true) (IdC 'false))) top-env)) "false")
-
-(check-equal? (serialize (interp (AppC (IdC 'equal?) (list (StringV "abc") (StringV "abc"))) top-env)) "true")
-
-(check-equal? (serialize (interp (AppC (IdC 'equal?) (list (StringV "abc") (StringV "xyz"))) top-env)) "false")
-
-(check-equal? (serialize (interp (AppC (IdC '/) (list (NumV 10) (NumV 2))) top-env)) "5")
+      {double y}}) "12")
 
 (check-equal? (serialize
                (interp (AppC (LamC '(x)
@@ -212,63 +186,65 @@
                              (list (NumV 10))) top-env))
               "15")
 
+(check-equal? (serialize (interp (AppC (IdC '-) (list (NumV 20) (NumV 5))) top-env)) "15")
+(check-equal? (serialize (interp (AppC (IdC '*) (list (NumV 3) (NumV 4))) top-env)) "12")
+(check-equal? (serialize (interp (parse 'true) top-env)) "true")
+(check-equal? (serialize (interp (parse 'false) top-env)) "false")
+(check-equal? (serialize (interp (parse "Hello") top-env)) "\"Hello\"")
+(check-equal? (serialize (interp (AppC (IdC 'equal?)
+                                       (list (IdC 'true) (IdC 'true))) top-env)) "true")
+(check-equal? (serialize (interp (AppC (IdC 'equal?)
+                                       (list (IdC 'true) (IdC 'false))) top-env)) "false")
+(check-equal? (serialize (interp (AppC (IdC 'equal?)
+                                       (list (StringV "abc") (StringV "abc"))) top-env)) "true")
+(check-equal? (serialize (interp (AppC (IdC 'equal?)
+                                       (list (StringV "abc") (StringV "xyz"))) top-env)) "false")
+(check-equal? (serialize (interp (AppC (IdC '/) (list (NumV 10) (NumV 2))) top-env)) "5")
+(check-equal? (serialize (interp (IfC (IdC 'true) (NumV 1) (NumV 0)) top-env)) "1")
 (check-equal? (serialize (ClosV '(x) (AppC (IdC '+) (list (IdC 'x) (NumV 5))) '())) "#<procedure>")
-
 (check-equal? (serialize (PrimV '+)) "#<primop>")
 
-;Handle-prims
+; Handlng primitives
 (check-equal? (handle-prims 'true '()) (BoolV #t))
-
 (check-equal? (handle-prims 'false '()) (BoolV #f))
-
-(check-equal? (handle-prims 'equal? (list (PrimV '+) (PrimV '+))) (BoolV #t))
-
-(check-equal? (handle-prims 'equal? (list (PrimV '+) (PrimV '-))) (BoolV #f))
-
-(check-equal? (handle-prims 'equal? (list (ClosV '(x) (IdC 'x) '()) (ClosV '(x) (IdC 'x) '()))) (BoolV #f))
+(check-equal? (handle-prims 'equal? (list (NumV 1) (PrimV '-))) (BoolV #f))
+(check-equal? (handle-prims 'equal? (list (ClosV '(x) (IdC 'x) '())
+                                          (ClosV '(x) (IdC 'x) '()))) (BoolV #f))
 
 ; Error tests
 (check-exn exn:fail?
            (lambda ()
              (parse 'bind)))
-
 (check-exn exn:fail?
            (lambda ()
              (parse '(bind [f = {(x x) => {+ x 1}}]))))
-
 (check-exn exn:fail?
            (lambda ()
              (interp (AppC (LamC '(x y) (AppC (IdC '+) (list (IdC 'x) (IdC 'y))))
                            (list (NumV 1))) top-env)))
-
 (check-exn exn:fail?
            (lambda ()
              (interp (IfC (NumV 1) (NumV 5) (NumV 10)) top-env)))
-
 (check-exn exn:fail?
            (lambda ()
              (interp (AppC (NumV 5) (list (NumV 10))) top-env)))
-
 (check-exn exn:fail?
            (lambda ()
              (interp (AppC (IdC '+) (list (StringV "hello") (NumV 5))) top-env)))
-
 (check-exn exn:fail?
            (lambda ()
              (interp (AppC (IdC '/) (list (NumV 10) (NumV 0))) top-env)))
-
 (check-exn exn:fail?
            (lambda ()
              (interp (AppC (IdC '+) (list (NumV 1))) top-env)))
-
 (check-exn exn:fail?
            (lambda ()
              (lookup 'nonexistent-symbol top-env)))
-
 (check-exn exn:fail?
            (lambda ()
              (check-args '(x x))))
-
-
-
-
+(check-exn exn:fail? (lambda ()
+                       (parse '{"not" 10 #f})))
+(check-exn exn:fail? (lambda ()
+                       (interp (AppC (IdC 'error) (list (StringV "something wrong"))) top-env)))
+(check-exn exn:fail? (lambda () (top-interp '(((e) => (e e)) error))))
