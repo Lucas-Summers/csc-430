@@ -145,9 +145,10 @@
          [EOF (error 'interp "[AAQZ] unexpected end of input for read-num")]))]
 
     [(cons 'seq args)
-     (if (null? args)
-         (error 'interp "[AAQZ] seq expects at least one argument")
-         (cast (last (cast args (Listof Value))) Value))]
+  (let ([last-item (last args)])
+    (match last-item
+      [(? Value? v) v]
+      [else (error 'interp "[AAQZ] expected a Value for seq result")]))]
 
     [(cons '++ args)
      (StringV (apply string-append (map serialize (cast args (Listof Value)))))]
