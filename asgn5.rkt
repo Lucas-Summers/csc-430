@@ -123,12 +123,38 @@
                         (error 'interp "[AAQZ] division by zero")))]
           ['<= (BoolV (<= x y))])]
        [other (error 'interp "[AAQZ] arithmetic operation with non-number: ~e" arith)])]
-    [(cons 'println (list (StringV s))) ((displayln s) (BoolV #t))]
-    [(cons 'read-num '()) (NumV (string->num (read-line)))]
-    [(cons 'read-str '()) (StringV (read-line))]
-    [(cons 'seq (list x ... y)) y]
-    [(cons '++ (list x ...)) (StringV (apply string-append (map serialize x)))]
-    [other (error 'interp "[AAQZ] wrong arity for operation: ~e" op)]))
+
+    [(cons 'println (list (StringV s)))
+     (begin
+       (displayln s)
+       (BoolV #t))]
+
+    [(cons 'read-str '())
+  (let ([input (read-line)])
+    (match input
+      [(? string?) (StringV input)]
+      [EOF (error 'interp "[AAQZ] unexpected end of input for read-str")]))]
+
+    [(cons 'read-num '())
+     (let ([input (read-line)])
+       (match input
+         [(? string?) 
+          (match (string->number input)
+            [(and (? real?) num) (NumV num)]
+            [else (error 'interp "[AAQZ] invalid input for read-num")])]
+         [EOF (error 'interp "[AAQZ] unexpected end of input for read-num")]))]
+
+    [(cons 'seq args)
+     (if (null? args)
+         (error 'interp "[AAQZ] seq expects at least one argument")
+         (cast (last (cast args (Listof Value))) Value))]
+
+    [(cons '++ args)
+     (StringV (apply string-append (map serialize (cast args (Listof Value)))))]
+
+    ;; Default case for unsupported operations or arity mismatches
+    [other (error 'interp "[AAQZ] wrong arity or unsupported operation: ~e" op)]))
+
 
 ; returns a string that is a readable form of the given Value
 (define (serialize [val : Value]) : String
