@@ -285,54 +285,55 @@
                        (interp (AppC (IdC 'error) (list (StringV "something wrong"))) top-env)))
 (check-exn exn:fail? (lambda () (top-interp '(((e) => (e e)) error))))
 
-; original hangman game
-(define (play-hangman)
-  (define word-to-guess "racket master")
-  (define max-attempts 6)
-  (define attempts-left max-attempts)
-  (define guessed-letters '())
+; 5, hangman game
+#;(define hangman
+  '{seq
+     {println "Welcome to Hangman!"}
+     {define word "racket master"}
+     {define guessed-letters {list}}
+     {define attempts 6}
 
-  (define (display-state word guessed-letters)
-    (apply string-append
-           (map (lambda (char)
-                  (if (member char guessed-letters) (format "~a" char) "_"))
-                (string->list word))))
+     {println {string-append "The word has " (int->string (length word)) " letters."}}
+     
+     {define all-letters-guessed?
+       {lambda (w gl)
+         {if (null? w)
+             true
+             {if (member (car w) gl)
+                 {all-letters-guessed? (cdr w) gl}
+                 false}}}}
+     {define display-word
+       {lambda (w gl)
+         {if (null? w)
+             ""
+             {string-append
+               (if (member (car w) gl)
+                   (car w)
+                   "_")
+               " "
+               {display-word (cdr w) gl}}}}}
 
-  (define (make-guess word guessed-letters)
-    (println "> Enter your guess:")
-    (let ([guess (read-str)])
-      (if (member guess guessed-letters)
-          (begin
-            (println "You've already guessed that letter. Try again.")
-            guessed-letters)
-          (cons guess guessed-letters))))
+     {while (and (> attempts 0)
+                 (not {all-letters-guessed? (string->list word) guessed-letters}))
+       {seq
+         {println "Current word:"}
+         {println {display-word (string->list word) guessed-letters}}
+         {println "Guess a letter:"}
+         {define guess {read-char}}
 
-  (define (is-win? word guessed-letters)
-  (define (all-guessed? chars)
-    (cond
-      [(empty? char) #t]
-      [(member (first char) guessed-letters) (all-guessed? (rest char))]
-      [else #f]))
-  (all-guessed? (string->list word)))
+         {if {member guess guessed-letters}
+             {println "You already guessed that letter!"}
+             {if {member guess (string->list word)}
+                 {seq
+                   {println "Good guess!"}
+                   {set! guessed-letters (cons guess guessed-letters)}}
+                 {seq
+                   {println "Incorrect guess."}
+                   {set! attempts (- attempts 1)}
+                   {println {string-append "You have " (int->string attempts) " attempts left."}}}}}}}
 
+     {if {all-letters-guessed? (string->list word) guessed-letters}
+         {println "Congratulations! You've guessed the word!"}
+         {println {string-append "Game over! The word was '" word "'."}}})
 
-  (define (game-loop word guessed-letters attempts-left)
-    (println (display-state word guessed-letters))
-    (println (format "Attempts left: ~a" attempts-left))
-
-    (cond
-      [(is-win? word guessed-letters)
-       (println "Congratulations, you won!")]
-      [(zero? attempts-left)
-       (println "Sorry, you've run out of attempts! The word was:")
-       (println word)]
-      [else
-       (define updated-guesses (make-guess word guessed-letters))
-       (if (not (member (last updated-guesses) (string->list word)))
-           (game-loop word updated-guesses (- attempts-left 1))
-           (game-loop word updated-guesses attempts-left))]))
-
-  (game-loop word-to-guess guessed-letters attempts-left))
-
-(play-hangman)
 
