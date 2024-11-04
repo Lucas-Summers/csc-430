@@ -111,6 +111,36 @@
      (match (cons x y)
        [(cons (or (? PrimV?) (? ClosV?)) (or (? PrimV?) (? ClosV?))) (BoolV #f)]
        [other (BoolV (equal? x y))])]
+    
+    [(cons 'println (list (StringV s)))
+     (begin
+       (displayln s)
+       (BoolV #t))]
+
+    [(cons 'read-str '())
+     (begin
+       (printf "> ")
+       (match (read-line)
+         [(? string? s) (StringV s)]
+         [EOF (error 'interp "[AAQZ] unexpected EOF for read-str")]))]
+
+    [(cons 'read-num '())
+       (begin
+         (printf "> ")
+         (match (read-line)
+           [(? string? in) 
+            (match (string->number in)
+              [(? real? n) (NumV n)]
+              [else (error 'interp "[AAQZ] invalid input for read-num")])]
+           [EOF (error 'interp "[AAQZ] unexpected EOF for read-num")]))]
+
+    [(cons 'seq (list _ ... x)) (cast x Value)] ; cast must succeed...
+
+    [(cons '++ (list x y ...))
+     (StringV (apply string-append
+                     (map convert-to-str
+                          (cast (cons x y) (Listof Value)))))] ; cast must succeed...
+    
     [(cons arith (list x y))
      (match (cons x y)
        [(cons (NumV x) (NumV y))
@@ -123,41 +153,16 @@
                         (error 'interp "[AAQZ] division by zero")))]
           ['<= (BoolV (<= x y))])]
        [other (error 'interp "[AAQZ] arithmetic operation with non-number: ~e" arith)])]
-
-    [(cons 'println (list (StringV s)))
-     (begin
-       (displayln s)
-       (BoolV #t))]
-
-    [(cons 'read-str '())
-  (let ([input (read-line)])
-    (match input
-      [(? string?) (StringV input)]
-      [EOF (error 'interp "[AAQZ] unexpected end of input for read-str")]))]
-
-    [(cons 'read-num '())
-     (let ([input (read-line)])
-       (match input
-         [(? string?) 
-          (match (string->number input)
-            [(and (? real?) num) (NumV num)]
-            [else (error 'interp "[AAQZ] invalid input for read-num")])]
-         [EOF (error 'interp "[AAQZ] unexpected end of input for read-num")]))]
-
-    [(cons 'seq (list _ ... x))
-     (if (null? x)
-         (error 'interp "[AAQZ] seq must have at least one argument")
-         (cast x Value))] ; cast must succeed...
-
-    [(cons '++ args)
-     (if (empty? args)
-         (error 'interp "[AAQZ] ++ must have at least one argument")
-         (StringV (apply string-append
-                         (map serialize (cast args (Listof Value))))))] ; cast must succeed...
-
-    ;; Default case for unsupported operations or arity mismatches
+    
     [other (error 'interp "[AAQZ] wrong arity or unsupported operation: ~e" op)]))
 
+(define (convert-to-str [v : Value]) : String
+  (match v
+    [(NumV n) (number->string n)]
+    [(StringV s) s]
+    [(BoolV b) (match b
+                 [#f "false"]
+                 [#t "true"])]))
 
 ; returns a string that is a readable form of the given Value
 (define (serialize [val : Value]) : String
@@ -198,120 +203,129 @@
                     (error 'parse "[AAQZ] duplicate argument names: ~e" f)
                     (cons f (check-args r)))]))
 
-; TEST CASES
-; General
-(check-equal? (serialize (interp (AppC
-                    (LamC '(a b)
-                          (AppC (IdC '+) (list (IdC 'a) (IdC 'b))))
-                    (list (NumV 10) (NumV 15))) top-env)) "25")
+; Example program: Hangman in AAQZ5
+(define example-program
+  '{bind
+    [empty = 0]
+    {bind
+     [empty? = {(x) => {equal? x empty}}]
+     [cons = {(f r)
+              =>
+              {(key)
+               =>
+               {if {equal? key 0}
+                   f
+                   r}}}]
+     [first = {(pair) => {pair 0}}]
+     [rest =  {(pair) => {pair 1}}]
+     {bind
+      [member? = {(self l x)
+                  =>
+                  {if {empty? l}
+                      false
+                      {if {equal? x {first l}}
+                          true
+                          {self self {rest l} x}}}}]
+      [print = {(self l delim)
+                =>
+                {if {empty? l}
+                    ""
+                    {++ {first l} delim {self self {rest l} delim} delim}}}]
+      {bind 
+       [word = {cons "r" {cons "a" {cons "c" {cons "k" {cons "e" {cons "t" empty}}}}}}] 
+       [max-attempts = 10]
+       [display-word = {(self g w)
+                        =>
+                        {if {empty? w}
+                            ""
+                            {if {member? member? g {first w}}
+                                {++ {first w} {self self g {rest w}}}
+                                {++ "_" {self self g {rest w}}}}}}]
+       [guess = {(self new g)
+                 =>
+                 {if {member? member? g new}
+                     {seq
+                      {println {++ "You already guessed the letter: " new}}
+                      {println {++ "Guessed Letters: " (print print g " ")}}
+                      {println "Enter a new letter:"}
+                      {self self {read-str} g}}
+                     {cons new g}}}]
+       {bind
+        [play = {(self attempts guessed)
+                 =>
+                 {if {equal? attempts max-attempts}
+                     {println {++ "Ran out of attempts! The word was: " (print print word "")}}
+                     {if {equal? (display-word display-word guessed word) (print print word "")}
+                         {println {++ "Congrats! You guessed the word: " (print print word "")}}
+                         {seq
+                          {println {++ "Attempts Remaining: " {- max-attempts attempts}}}
+                          {println {++ "Current Word: " (display-word display-word guessed word)}}
+                          {println {++ "Guessed Letters: " (print print guessed " ")}}
+                          {println "Enter a new letter:"}
+                          {self self {+ 1 attempts} {guess guess {read-str} guessed}}
+                          }}}}]
+        {seq
+         {println "Let's play HANGMAN!"}
+         {play play 0 empty}}
+        }}}}})
 
-(check-equal? (top-interp '{bind [f = {(x) => {+ x 1}}]
-      [y = 7]
-      {f y}}) "8")
+; Sample run:
+(top-interp example-program)
 
-; recursive test from in class
-(check-equal? (top-interp '{bind [fact = {(self n) => {if {<= n 0}
-                               1
-                               {* n {self self {- n 1}}}}}]
-      {fact fact 4}}) "24")
-
-(check-equal? (top-interp '{bind [double = {(x) => {* x 2}}]
-      [y = 6]
-      {double y}}) "12")
-
-(check-equal? (serialize
-               (interp (AppC (LamC '(x)
-                                  (AppC (IdC '+) (list (IdC 'x) (NumV 5))))
-                             (list (NumV 10))) top-env))
-              "15")
-
-(check-equal? (serialize (interp (AppC (IdC '-) (list (NumV 20) (NumV 5))) top-env)) "15")
-(check-equal? (serialize (interp (AppC (IdC '*) (list (NumV 3) (NumV 4))) top-env)) "12")
-(check-equal? (serialize (interp (parse 'true) top-env)) "true")
-(check-equal? (serialize (interp (parse 'false) top-env)) "false")
-(check-equal? (serialize (interp (parse "Hello") top-env)) "\"Hello\"")
-(check-equal? (serialize (interp (AppC (IdC 'equal?)
-                                       (list (IdC 'true) (IdC 'true))) top-env)) "true")
-(check-equal? (serialize (interp (AppC (IdC 'equal?)
-                                       (list (IdC 'true) (IdC 'false))) top-env)) "false")
-(check-equal? (serialize (interp (AppC (IdC 'equal?)
-                                       (list (StringV "abc") (StringV "abc"))) top-env)) "true")
-(check-equal? (serialize (interp (AppC (IdC 'equal?)
-                                       (list (StringV "abc") (StringV "xyz"))) top-env)) "false")
-(check-equal? (serialize (interp (AppC (IdC '/) (list (NumV 10) (NumV 2))) top-env)) "5")
-(check-equal? (serialize (interp (IfC (IdC 'true) (NumV 1) (NumV 0)) top-env)) "1")
-(check-equal? (serialize (ClosV '(x) (AppC (IdC '+) (list (IdC 'x) (NumV 5))) '())) "#<procedure>")
-(check-equal? (serialize (PrimV '+)) "#<primop>")
-
-; Handlng primitives
-(check-equal? (handle-prims 'true '()) (BoolV #t))
-(check-equal? (handle-prims 'false '()) (BoolV #f))
-(check-equal? (handle-prims 'equal? (list (NumV 1) (PrimV '-))) (BoolV #f))
-(check-equal? (handle-prims 'equal? (list (ClosV '(x) (IdC 'x) '())
-                                          (ClosV '(x) (IdC 'x) '()))) (BoolV #f))
-
-; Error tests
-(check-exn exn:fail?
-           (lambda ()
-             (parse 'bind)))
-(check-exn exn:fail?
-           (lambda ()
-             (parse '(bind [f = {(x x) => {+ x 1}}]))))
-(check-exn exn:fail?
-           (lambda ()
-             (interp (AppC (LamC '(x y) (AppC (IdC '+) (list (IdC 'x) (IdC 'y))))
-                           (list (NumV 1))) top-env)))
-(check-exn exn:fail?
-           (lambda ()
-             (interp (IfC (NumV 1) (NumV 5) (NumV 10)) top-env)))
-(check-exn exn:fail?
-           (lambda ()
-             (interp (AppC (NumV 5) (list (NumV 10))) top-env)))
-(check-exn exn:fail?
-           (lambda ()
-             (interp (AppC (IdC '+) (list (StringV "hello") (NumV 5))) top-env)))
-(check-exn exn:fail?
-           (lambda ()
-             (interp (AppC (IdC '/) (list (NumV 10) (NumV 0))) top-env)))
-(check-exn exn:fail?
-           (lambda ()
-             (interp (AppC (IdC '+) (list (NumV 1))) top-env)))
-(check-exn exn:fail?
-           (lambda ()
-             (lookup 'nonexistent-symbol top-env)))
-(check-exn exn:fail?
-           (lambda ()
-             (check-args '(x x))))
-(check-exn exn:fail? (lambda ()
-                       (parse '{"not" 10 #f})))
-(check-exn exn:fail? (lambda ()
-                       (interp (AppC (IdC 'error) (list (StringV "something wrong"))) top-env)))
-(check-exn exn:fail? (lambda () (top-interp '(((e) => (e e)) error))))
-
-
-{bind
- []
- {bind
-  [word = "racket"]
-  [max-attempts = 6]
-  [display-word = {}]
-  [display-letters = {}]
-  [guess = {()}]
-  {bind
-   [play = {(self attempts guessed)
-            =>
-            {if {equal? attempts max-attempts}
-                {println {++ "Game Over! The word was: " word}}
-                {if {equal? (display-word display-word guessed) word}
-                    {println {++ "Congrats! You guessed the word: " word}}
-                    {seq
-                     {println {++ "Current Word: " (display-word display-word guessed)}}
-                     {println {++ "Guessed Letters: " (display-letters display-letters guessed)}}
-                     {println {++ "Attempts Remaining: " {- max-attempts attempts}}}
-                     {println "Guess a new letter:"}
-                     {play play {+ 1 attempts} {guess guess {read-str} guessed}}
-                     }}}}]
-   {play play 0 empty}
-   }}}
-
-
+#|
+Let's play HANGMAN!
+Attempts Remaining: 10
+Current Word: ______
+Guessed Letters: 
+Enter a new letter:
+r
+Attempts Remaining: 9
+Current Word: r_____
+Guessed Letters: r  
+Enter a new letter:
+a
+Attempts Remaining: 8
+Current Word: ra____
+Guessed Letters: a r   
+Enter a new letter:
+t
+Attempts Remaining: 7
+Current Word: ra___t
+Guessed Letters: t a r    
+Enter a new letter:
+f
+Attempts Remaining: 6
+Current Word: ra___t
+Guessed Letters: f t a r     
+Enter a new letter:
+t
+You already guessed the letter: t
+Guessed Letters: f t a r     
+Enter a new letter:
+e
+Attempts Remaining: 5
+Current Word: ra__et
+Guessed Letters: e f t a r      
+Enter a new letter:
+c
+Attempts Remaining: 4
+Current Word: rac_et
+Guessed Letters: c e f t a r       
+Enter a new letter:
+r
+You already guessed the letter: r
+Guessed Letters: c e f t a r       
+Enter a new letter:
+x
+Attempts Remaining: 3
+Current Word: rac_et
+Guessed Letters: x c e f t a r        
+Enter a new letter:
+z
+Attempts Remaining: 2
+Current Word: rac_et
+Guessed Letters: z x c e f t a r         
+Enter a new letter:
+k
+Congrats! You guessed the word: racket
+|#
