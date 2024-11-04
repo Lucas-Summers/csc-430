@@ -145,12 +145,15 @@
          [EOF (error 'interp "[AAQZ] unexpected end of input for read-num")]))]
 
     [(cons 'seq (list _ ... x))
-  (if (null? x)
-      (error 'interp "[AAQZ] seq returning a last value which is null")
-      (cast x Value))]
+     (if (null? x)
+         (error 'interp "[AAQZ] seq must have at least one argument")
+         (cast x Value))] ; cast must succeed...
 
     [(cons '++ args)
-     (StringV (apply string-append (map serialize (cast args (Listof Value)))))]
+     (if (empty? args)
+         (error 'interp "[AAQZ] ++ must have at least one argument")
+         (StringV (apply string-append
+                         (map serialize (cast args (Listof Value))))))] ; cast must succeed...
 
     ;; Default case for unsupported operations or arity mismatches
     [other (error 'interp "[AAQZ] wrong arity or unsupported operation: ~e" op)]))
@@ -285,55 +288,30 @@
                        (interp (AppC (IdC 'error) (list (StringV "something wrong"))) top-env)))
 (check-exn exn:fail? (lambda () (top-interp '(((e) => (e e)) error))))
 
-; 5, hangman game
-#;(define hangman
-  '{seq
-     {println "Welcome to Hangman!"}
-     {define word "racket master"}
-     {define guessed-letters {list}}
-     {define attempts 6}
 
-     {println {string-append "The word has " (int->string (length word)) " letters."}}
-     
-     {define all-letters-guessed?
-       {lambda (w gl)
-         {if (null? w)
-             true
-             {if (member (car w) gl)
-                 {all-letters-guessed? (cdr w) gl}
-                 false}}}}
-     {define display-word
-       {lambda (w gl)
-         {if (null? w)
-             ""
-             {string-append
-               (if (member (car w) gl)
-                   (car w)
-                   "_")
-               " "
-               {display-word (cdr w) gl}}}}}
-
-     {while (and (> attempts 0)
-                 (not {all-letters-guessed? (string->list word) guessed-letters}))
-       {seq
-         {println "Current word:"}
-         {println {display-word (string->list word) guessed-letters}}
-         {println "Guess a letter:"}
-         {define guess {read-char}}
-
-         {if {member guess guessed-letters}
-             {println "You already guessed that letter!"}
-             {if {member guess (string->list word)}
-                 {seq
-                   {println "Good guess!"}
-                   {set! guessed-letters (cons guess guessed-letters)}}
-                 {seq
-                   {println "Incorrect guess."}
-                   {set! attempts (- attempts 1)}
-                   {println {string-append "You have " (int->string attempts) " attempts left."}}}}}}}
-
-     {if {all-letters-guessed? (string->list word) guessed-letters}
-         {println "Congratulations! You've guessed the word!"}
-         {println {string-append "Game over! The word was '" word "'."}}})
+{bind
+ []
+ {bind
+  [word = "racket"]
+  [max-attempts = 6]
+  [display-word = {}]
+  [display-letters = {}]
+  [guess = {()}]
+  {bind
+   [play = {(self attempts guessed)
+            =>
+            {if {equal? attempts max-attempts}
+                {println {++ "Game Over! The word was: " word}}
+                {if {equal? (display-word display-word guessed) word}
+                    {println {++ "Congrats! You guessed the word: " word}}
+                    {seq
+                     {println {++ "Current Word: " (display-word display-word guessed)}}
+                     {println {++ "Guessed Letters: " (display-letters display-letters guessed)}}
+                     {println {++ "Attempts Remaining: " {- max-attempts attempts}}}
+                     {println "Guess a new letter:"}
+                     {play play {+ 1 attempts} {guess guess {read-str} guessed}}
+                     }}}}]
+   {play play 0 empty}
+   }}}
 
 
