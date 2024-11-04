@@ -144,11 +144,10 @@
             [else (error 'interp "[AAQZ] invalid input for read-num")])]
          [EOF (error 'interp "[AAQZ] unexpected end of input for read-num")]))]
 
-    [(cons 'seq args)
-  (let ([last-item (last args)])
-    (match last-item
-      [(? Value? v) v]
-      [else (error 'interp "[AAQZ] expected a Value for seq result")]))]
+    [(cons 'seq (list _ ... x))
+  (if (null? x)
+      (error 'interp "[AAQZ] seq returning a last value which is null")
+      (cast x Value))]
 
     [(cons '++ args)
      (StringV (apply string-append (map serialize (cast args (Listof Value)))))]
@@ -285,3 +284,55 @@
 (check-exn exn:fail? (lambda ()
                        (interp (AppC (IdC 'error) (list (StringV "something wrong"))) top-env)))
 (check-exn exn:fail? (lambda () (top-interp '(((e) => (e e)) error))))
+
+; original hangman game
+(define (play-hangman)
+  (define word-to-guess "racket master")
+  (define max-attempts 6)
+  (define attempts-left max-attempts)
+  (define guessed-letters '())
+
+  (define (display-state word guessed-letters)
+    (apply string-append
+           (map (lambda (char)
+                  (if (member char guessed-letters) (format "~a" char) "_"))
+                (string->list word))))
+
+  (define (make-guess word guessed-letters)
+    (println "> Enter your guess:")
+    (let ([guess (read-str)])
+      (if (member guess guessed-letters)
+          (begin
+            (println "You've already guessed that letter. Try again.")
+            guessed-letters)
+          (cons guess guessed-letters))))
+
+  (define (is-win? word guessed-letters)
+  (define (all-guessed? chars)
+    (cond
+      [(empty? char) #t]
+      [(member (first char) guessed-letters) (all-guessed? (rest char))]
+      [else #f]))
+  (all-guessed? (string->list word)))
+
+
+  (define (game-loop word guessed-letters attempts-left)
+    (println (display-state word guessed-letters))
+    (println (format "Attempts left: ~a" attempts-left))
+
+    (cond
+      [(is-win? word guessed-letters)
+       (println "Congratulations, you won!")]
+      [(zero? attempts-left)
+       (println "Sorry, you've run out of attempts! The word was:")
+       (println word)]
+      [else
+       (define updated-guesses (make-guess word guessed-letters))
+       (if (not (member (last updated-guesses) (string->list word)))
+           (game-loop word updated-guesses (- attempts-left 1))
+           (game-loop word updated-guesses attempts-left))]))
+
+  (game-loop word-to-guess guessed-letters attempts-left))
+
+(play-hangman)
+
