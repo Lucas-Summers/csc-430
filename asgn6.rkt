@@ -121,9 +121,6 @@
 ; given list of Values, returning the result as a Value
 (define (handle-prims [op : Symbol] [args : (Listof Value)] [store : (Vectorof Value)]) : Value
   (match (cons op args)
-    [(cons 'true '()) (BoolV #t)]
-    [(cons 'false '()) (BoolV #f)]
-    [(cons 'null '()) (NullV)]
     [(cons 'error (list x))
      ; cast must succeed...
      (error 'interp "[AAQZ] user-error: ~e" (serialize (cast x Value)))]
