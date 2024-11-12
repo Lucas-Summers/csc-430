@@ -102,8 +102,6 @@
 ; given list of Values, returning the result as a Value
 (define (handle-prims [op : Symbol] [args : (Listof Value)]) : Value
   (match (cons op args)
-    [(cons 'true '()) (BoolV #t)]
-    [(cons 'false '()) (BoolV #f)]
     [(cons 'error (list x))
      ; cast must succeed...
      (error 'interp "[AAQZ] user-error: ~e" (serialize (cast x Value)))]
@@ -238,8 +236,6 @@
 (check-equal? (serialize (ClosV '(x) (AppC (IdC '+) (list (IdC 'x) (NumV 5))) '())) "#<procedure>")
 (check-equal? (serialize (PrimV '+)) "#<primop>")
 ; Handlng primitives
-(check-equal? (handle-prims 'true '()) (BoolV #t))
-(check-equal? (handle-prims 'false '()) (BoolV #f))
 (check-equal? (handle-prims 'equal? (list (NumV 1) (PrimV '-))) (BoolV #f))
 (check-equal? (handle-prims 'equal? (list (ClosV '(x) (IdC 'x) '())
                                           (ClosV '(x) (IdC 'x) '()))) (BoolV #f))
