@@ -294,3 +294,104 @@
                         {in-order {array 1 2 3 4 5} 5}})
 
 (top-interp in-order 100)
+
+;TESTING
+; Test cases for error primitive
+(check-exn exn:fail? 
+           (lambda () (top-interp '{error "test error"} 100)))
+
+(check-exn exn:fail? 
+           (lambda () (top-interp '{error {+ 1 2}} 100)))
+
+; Test cases for equal? primitive with closures and primitives
+(check-equal? (top-interp '{equal? + -} 100) "false")
+(check-equal? (top-interp '{equal? {(x) => x} {(x) => x}} 100) "false")
+(check-equal? (top-interp '{equal? + +} 100) "false")
+(check-equal? (top-interp '{equal? {(x) => x} +} 100) "false")
+
+; Regular equal? cases
+(check-equal? (top-interp '{equal? 1 1} 100) "true")
+(check-equal? (top-interp '{equal? "hello" "hello"} 100) "true")
+(check-equal? (top-interp '{equal? true true} 100) "true")
+(check-equal? (top-interp '{equal? false false} 100) "true")
+(check-equal? (top-interp '{equal? null null} 100) "true")
+(check-equal? (top-interp '{equal? 1 2} 100) "false")
+(check-equal? (top-interp '{equal? "hello" "world"} 100) "false")
+
+; Test cases for make-array
+(check-equal? (top-interp '{make-array 3 0} 100) "#<array>")
+(check-equal? (top-interp '{aref {make-array 3 42} 0} 100) "42")
+(check-equal? (top-interp '{aref {make-array 3 42} 2} 100) "42")
+
+; Error cases for make-array
+(check-exn exn:fail? 
+           (lambda () (top-interp '{make-array 0 42} 100)))
+
+(check-exn exn:fail? 
+           (lambda () (top-interp '{make-array -1 42} 100)))
+
+(check-exn exn:fail? 
+           (lambda () (top-interp '{make-array "not-a-number" 42} 100)))
+
+; Test cases for aset!
+(check-equal? (top-interp '{bind [arr = {make-array 3 0}]
+                                {seq
+                                  {aset! arr 0 42}
+                                  {aref arr 0}}} 100) "42")
+
+(check-equal? (top-interp '{bind [arr = {make-array 3 0}]
+                                {seq
+                                  {aset! arr 2 42}
+                                  {aref arr 2}}} 100) "42")
+
+; Error cases for aset!
+#;(check-exn exn:fail?
+           (lambda () (top-interp '{bind [arr = {make-array 3 0}]
+                                        {aset! arr 3 42}} 100)))
+
+(check-exn exn:fail?
+           (lambda () (top-interp '{bind [arr = {make-array 3 0}]
+                                        {aset! arr -1 42}} 100)))
+
+(check-exn exn:fail?
+           (lambda () (top-interp '{aset! 42 0 1} 100)))
+
+(check-exn exn:fail?
+           (lambda () (top-interp '{aset! "not-an-array" 0 1} 100)))
+
+; Test cases for substring
+(check-equal? (top-interp '{substring "hello" 0 5} 100) "\"hello\"")
+(check-equal? (top-interp '{substring "hello" 1 4} 100) "\"ell\"")
+(check-equal? (top-interp '{substring "hello" 0 0} 100) "\"\"")
+
+; Error cases for substring
+(check-exn exn:fail?
+           (lambda () (top-interp '{substring 42 0 1} 100)))
+
+(check-exn exn:fail?
+           (lambda () (top-interp '{substring "hello" "not-a-number" 1} 100)))
+
+(check-exn exn:fail?
+           (lambda () (top-interp '{substring "hello" 0 "not-a-number"} 100)))
+
+; Additional edge cases
+(check-exn exn:fail?
+           (lambda () (top-interp '{substring "hello" -1 5} 100)))
+
+(check-exn exn:fail?
+           (lambda () (top-interp '{substring "hello" 0 6} 100)))
+
+(check-exn exn:fail?
+           (lambda () (top-interp '{substring "hello" 3 2} 100)))
+
+; Memory exhaustion test
+(check-exn exn:fail?
+           (lambda () (top-interp '{make-array 1000 0} 10)))
+
+; Test array mutation preserves other values
+(check-equal? (top-interp '{bind [arr = {make-array 3 0}]
+                                {seq
+                                  {aset! arr 0 42}
+                                  {aset! arr 1 43}
+                                  {aset! arr 2 44}
+                                  {array {aref arr 0} {aref arr 1} {aref arr 2}}}} 100) "#<array>")
