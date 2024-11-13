@@ -142,7 +142,7 @@
        [other (error 'interp "[AAQZ] invalid array size: ~e" (serialize (cast x Value)))])]
     [(cons 'aref (list x y))
      (match (cons x y)
-       [(cons (ArrayV s l) (NumV y)) (if (or (> 0 y) (< l y))
+       [(cons (ArrayV s l) (NumV y)) (if (or (> 0 y) (< (- l 1) y))
                                          (error 'interp "[AAQZ] array index out of bounds: ~e" x)
                                          ; cast must succeed...
                                          (vector-ref store (+ s (cast y Integer))))]
@@ -150,7 +150,7 @@
     [(cons 'aset! (list x y z))
      (match (cons x y)
        [(cons (ArrayV s l) (NumV y)) (begin
-                                       (if (or (> 0 y) (< l y))
+                                       (if (or (> 0 y) (< (- l 1) y))
                                          (error 'interp "[AAQZ] array index out of bounds: ~e" x)
                                          ; casts must succeed...
                                          (vector-set! store (+ s (cast y Integer)) (cast z Value)))
@@ -196,7 +196,7 @@
       (error 'allocate "[AAQZ] ran out of memory"))
     (for ([i (in-range (length vals))])
       (vector-set! store (+ i loc) (list-ref vals i)))
-    (vector-set! store 0 (ArrayV 1 (+ loc len)))
+    (vector-set! store (ann 0 Natural) (ArrayV 1 (+ loc len)))
     loc))
 
 ; given the list of primatives (each a Symbol-Value pair),
@@ -210,7 +210,7 @@
 ; creates a store vector of the given size (with added room for primatives)
 (define (make-initial-store [memsize : Integer]) : (Vectorof Value)
   (let ([s (make-value-vector (+ memsize (length prims)) (NullV))])
-    (vector-set! s 0 (ArrayV 1 1))
+    (vector-set! s (ann 0 Natural) (ArrayV 1 1))
     s))
 
 ; returns a string that is a readable form of the given AAQZ6 Value
@@ -345,7 +345,7 @@
                                   {aref arr 2}}} 100) "42")
 
 ; Error cases for aset!
-#;(check-exn exn:fail?
+(check-exn exn:fail?
            (lambda () (top-interp '{bind [arr = {make-array 3 0}]
                                         {aset! arr 3 42}} 100)))
 
