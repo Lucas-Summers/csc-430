@@ -374,7 +374,6 @@
 (check-exn exn:fail?
            (lambda () (top-interp '{substring "hello" 0 "not-a-number"} 100)))
 
-; Additional edge cases
 (check-exn exn:fail?
            (lambda () (top-interp '{substring "hello" -1 5} 100)))
 
@@ -383,8 +382,7 @@
 
 (check-exn exn:fail?
            (lambda () (top-interp '{substring "hello" 3 2} 100)))
-
-; Memory exhaustion test
+; store test
 (check-exn exn:fail?
            (lambda () (top-interp '{make-array 1000 0} 10)))
 
