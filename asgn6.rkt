@@ -43,7 +43,7 @@
 ; a version of make-vector that only makes Value vectors (for the store)
 (define make-value-vector (inst make-vector Value))
 
-; the list of AAQZ6 primatives + booleans + null, each listed as a Symbol-Value pair
+; the list of AAQZ6 primitives + booleans + null, each listed as a Symbol-Value pair
 (define prims
   (list
    (cons 'false (BoolV #f))
@@ -137,31 +137,38 @@
     [(cons 'make-array (list x y))
      (match x
        ; casts must succeed...
-       [(NumV (? positive? n)) (ArrayV (allocate store (make-list (cast n Integer) (cast y Value)))
-                                       (cast n Integer))]
+       [(NumV (? exact? n)) (if (positive? n)
+                                (ArrayV (allocate store (make-list (cast n Integer)
+                                                                   (cast y Value)))
+                                        (cast n Integer))
+                                (error 'interp "[AAQZ] array size must be positive"))]
        [other (error 'interp "[AAQZ] invalid array size: ~e" (serialize (cast x Value)))])]
     [(cons 'aref (list x y))
      (match (cons x y)
-       [(cons (ArrayV s l) (NumV y)) (if (or (> 0 y) (< (- l 1) y))
-                                         (error 'interp "[AAQZ] array index out of bounds: ~e" x)
-                                         ; cast must succeed...
-                                         (vector-ref store (+ s (cast y Integer))))]
-       [other (error 'interp "[AAQZ] invalid array reference")])]
+       [(cons (ArrayV s l) (NumV (? exact? y))) (if (or (> 0 y) (< (- l 1) y))
+                                                    (error 'interp
+                                                           "[AAQZ] array index out of bounds: ~e" x)
+                                                    ; cast must succeed...
+                                                    (vector-ref store (+ s (cast y Integer))))]
+       [other (error 'interp "[AAQZ] invalid array index in reference")])]
     [(cons 'aset! (list x y z))
      (match (cons x y)
-       [(cons (ArrayV s l) (NumV y)) (begin
-                                       (if (or (> 0 y) (< (- l 1) y))
-                                         (error 'interp "[AAQZ] array index out of bounds: ~e" x)
-                                         ; casts must succeed...
-                                         (vector-set! store (+ s (cast y Integer)) (cast z Value)))
-                                       (NullV))]
-       [other (error 'interp "[AAQZ] invalid array mutation")])]
+       [(cons (ArrayV s l) (NumV (? exact? y))) (begin
+                                                  (if (or (> 0 y) (< (- l 1) y))
+                                                      (error 'interp
+                                                             "[AAQZ] array index out of bounds: ~e" x)
+                                                      ; casts must succeed...
+                                                      (vector-set! store (+ s (cast y Integer))
+                                                                   (cast z Value)))
+                                                  (NullV))]
+       [other (error 'interp "[AAQZ] invalid array index in mutation")])]
     [(cons 'substring (list x y z))
      (match (list x y z)
        ; casts must succeed...
-       [(list (StringV x) (NumV y) (NumV z)) (StringV (substring x
-                                                                 (cast y Integer)
-                                                                 (cast z Integer)))]
+       [(list (StringV x) (NumV (? exact? y)) (NumV (? exact? z))) 
+        (StringV (substring x
+                            (cast y Integer)
+                            (cast z Integer)))]
        [other (error 'interp "[AAQZ] invalid indexes to string ~e" (serialize (cast x Value)))])]
     [(cons arith (list x y))
      (match (cons x y)
@@ -260,46 +267,37 @@
                     (error 'parse "[AAQZ] duplicate argument names: ~e" f)
                     (cons f (check-args r)))]))
 
+
+; while and in-order functions written in AAQZ6
+(define while '{(guard body) => {if {guard}
+                                    {seq
+                                     {body}
+                                     {while guard body}}
+                                    false}})
+
+(define in-order `{(arr size) =>
+                              {bind [while = 0]
+                                    [i = 0]
+                                    {seq
+                                     {while := ,while}
+                                     {seq
+                                      {while
+                                       {() => {<= (+ 1 i) (- size 1)}}
+                                       {() => {if {<= {aref arr i} {aref arr {+ i 1}}}
+                                                  {i := {+ i 1}}
+                                                  {i := size}}}}
+                                      {equal? i {- size 1}}}}}})
+
 ; TEST CASES
-(top-interp '{bind [fact = "bogus"]
-                   {seq {fact := {(x) => {if {equal? x 0}
-                                             1
-                                             {* x {fact {- x 1}}}}}}
-                        {fact 12}}} 100)
-
-(define while '{bind [while = 0]
-                     {while := {(guard body) => {if {guard}
-                                                    {seq
-                                                     {body}
-                                                     {while guard body}}
-                                                    false}}}})
-
-(define in-order '{bind [in-order = {(arr size) =>
-                                       {bind [i = 0]
-                                             {bind [while = 0]
-                                                   {seq
-                                                    {while := {(guard body) =>
-                                                                            {if {guard}
-                                                                                {seq
-                                                                                 {body}
-                                                                                 {while guard body}}
-                                                                                false}}}
-                                                    {seq
-                                                     {while
-                                                      {() => {<= (+ 1 i) (- size 1)}}
-                                                      {() => {if {<= {aref arr i} {aref arr {+ i 1}}}
-                                                                 {i := {+ i 1}}
-                                                                 {i := size}}}}
-                                                     {equal? i {- size 1}}}}}}}]
-                        {in-order {array 1 2 3 4 5} 5}})
-
-(top-interp in-order 100)
-
-;TESTING
-
-; Test for top-interp
-
-
+; Test from assignment
+(check-equal? (top-interp '{bind [fact = "bogus"]
+                                 {seq {fact := {(x) => {if {equal? x 0}
+                                                           1
+                                                           {* x {fact {- x 1}}}}}}
+                                      {fact 12}}} 100) "479001600")
+(check-equal? (top-interp `{bind [in-order = ,in-order] {in-order {array 1 2 3 4 5} 5}} 100) "true")
+(check-equal? (top-interp `{bind [in-order = ,in-order] {in-order {array 1 2 3 6 5} 3}} 100) "true")
+(check-equal? (top-interp `{bind [in-order = ,in-order] {in-order {array 1 2 6 4 5} 5}} 100) "false")
 
 ; Test cases for error primitive
 (check-exn exn:fail? 
@@ -315,7 +313,7 @@
 (check-equal? (top-interp '{equal? {(x) => x} +} 100) "false")
 
 ; Regular equal? cases
-(check-equal? (top-interp '{equal? 1 1} 100) "true")
+(check-equal? (top-interp '{equal? 1 {/ 2 2}} 100) "true")
 (check-equal? (top-interp '{equal? "hello" "hello"} 100) "true")
 (check-equal? (top-interp '{equal? true true} 100) "true")
 (check-equal? (top-interp '{equal? null null} 100) "true")
@@ -329,43 +327,58 @@
 ; Error cases for make-array
 (check-exn exn:fail? 
            (lambda () (top-interp '{make-array 0 42} 100)))
-
 (check-exn exn:fail? 
            (lambda () (top-interp '{make-array -1 42} 100)))
-
 (check-exn exn:fail? 
            (lambda () (top-interp '{make-array "not-a-number" 42} 100)))
+(check-exn exn:fail? 
+           (lambda () (top-interp '{make-array 2.2 42} 100)))
 
-; Test cases for aset!
+; Test cases for aset!/aref
 (check-equal? (top-interp '{bind [arr = {make-array 3 0}]
                                 {seq
                                   {aset! arr 0 42}
                                   {aref arr 0}}} 100) "42")
-
 (check-equal? (top-interp '{bind [arr = {make-array 3 0}]
                                 {seq
                                   {aset! arr 2 42}
                                   {aref arr 2}}} 100) "42")
 
-; Error cases for aset!
+; Error cases for aset!/aref
 (check-exn exn:fail?
            (lambda () (top-interp '{bind [arr = {make-array 3 0}]
                                         {aset! arr 3 42}} 100)))
-
 (check-exn exn:fail?
            (lambda () (top-interp '{aset! "not-an-array" 0 1} 100)))
+(check-exn exn:fail?
+           (lambda () (top-interp '(bind (f = (make-array 5 false)) (aset! f 2.3 19)) 1000)))
+(check-exn exn:fail?
+           (lambda () (top-interp '{bind [arr = {make-array 3 0}]
+                                        {aref arr 2.2}} 100)))
+(check-exn exn:fail?
+           (lambda () (top-interp '{bind [arr = {make-array 3 0}]
+                                        {aref arr 3}} 100)))
+(check-exn exn:fail?
+           (lambda () (top-interp '{bind [arr = {make-array 3 0}]
+                                        {aref arr -1}} 100)))
+(check-exn exn:fail?
+           (lambda () (top-interp '{bind [arr = {make-array 3 0}]
+                                        {aref "arr" 0}} 100)))
 
 ; Test cases for substring
 (check-equal? (top-interp '{substring "hello" 0 5} 100) "\"hello\"")
+(check-equal? (top-interp '{substring "hello" 0 1} 100) "\"h\"")
+(check-equal? (top-interp '{substring "hello" 0 0} 100) "\"\"")
 
 ; Error cases for substring
 (check-exn exn:fail?
            (lambda () (top-interp '{substring 42 0 1} 100)))
-
 (check-exn exn:fail?
            (lambda () (top-interp '{substring "hello" "not-a-number" 1} 100)))
+(check-exn exn:fail?
+           (lambda () (top-interp '(substring "abcd" 0 0.234) 1000)))
 
-; store test
+; out of memory test
 (check-exn exn:fail?
            (lambda () (top-interp '{make-array 1000 0} 10)))
 
@@ -399,69 +412,44 @@
 
 (check-equal? (top-interp '{bind [arr = {array null + {(x) => x}}]
                                 {equal? {aref arr 0} null}} 100) "true")
-
 (check-equal? (top-interp '{bind [f = {(x) => {(y) => {+ x y}}}]
                                 {bind [g = {f 1}]
                                      g}} 100) "#<procedure>")
-
 (check-equal? (top-interp '{bind [op = +] op} 100) "#<primop>")
-
 (check-equal? (top-interp '{bind [n = null] 
                                 {equal? n null}} 100) "true")
 
 ; Test serialization in error messages
 (check-exn exn:fail?
            (lambda () (top-interp '{error {(x) => x}} 100)))
-
 (check-exn exn:fail?
            (lambda () (top-interp '{error +} 100)))
-
 (check-exn exn:fail?
            (lambda () (top-interp '{error null} 100)))
 
 ; Extra error testing
-
 (check-exn exn:fail? (lambda () (top-interp '#(invalid syntax) 100)))
-
 (check-exn exn:fail? (lambda () (top-interp '{if 42 1 2} 100)))
-
 (check-exn exn:fail? (lambda () (top-interp '{bind [f = {(x y) => x}] {f 1}} 100)))
-
 (check-exn exn:fail? (lambda () (top-interp '{42 1} 100)))
-
 (check-exn exn:fail? (lambda () (top-interp '{array} 100)))
-
 (check-exn exn:fail? (lambda () (top-interp '{bind [arr = {array 1 2 3}] {aref arr 3}} 100)))
-
 (check-exn exn:fail? (lambda () (top-interp '{aref 42 0} 100)))
-
 (check-exn exn:fail? (lambda () (top-interp '{/ 5 0} 100)))
-
 (check-exn exn:fail? (lambda () (top-interp '{+ "hello" 1} 100)))
-
 (check-exn exn:fail? (lambda () (top-interp '{+ 1} 100)))
-
 (check-exn exn:fail?
            (lambda ()
              (lookup 'undefined-id '() (vector))))
-
 (check-exn exn:fail?
            (lambda ()
              (lookup-index 'undefined-id '())))
-
 (check-exn exn:fail?
            (lambda ()
              (valid-id? 'if)))
-
 (check-exn exn:fail?
            (lambda ()
              (check-args '(x x))))
-
 (check-exn exn:fail?
            (lambda ()
              (check-args '(if x))))
-
-
-
-
-
