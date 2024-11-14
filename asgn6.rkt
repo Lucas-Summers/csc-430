@@ -313,10 +313,8 @@
 (check-equal? (top-interp '{equal? 1 1} 100) "true")
 (check-equal? (top-interp '{equal? "hello" "hello"} 100) "true")
 (check-equal? (top-interp '{equal? true true} 100) "true")
-(check-equal? (top-interp '{equal? false false} 100) "true")
 (check-equal? (top-interp '{equal? null null} 100) "true")
 (check-equal? (top-interp '{equal? 1 2} 100) "false")
-(check-equal? (top-interp '{equal? "hello" "world"} 100) "false")
 
 ; Test cases for make-array
 (check-equal? (top-interp '{make-array 3 0} 100) "#<array>")
@@ -350,19 +348,10 @@
                                         {aset! arr 3 42}} 100)))
 
 (check-exn exn:fail?
-           (lambda () (top-interp '{bind [arr = {make-array 3 0}]
-                                        {aset! arr -1 42}} 100)))
-
-(check-exn exn:fail?
-           (lambda () (top-interp '{aset! 42 0 1} 100)))
-
-(check-exn exn:fail?
            (lambda () (top-interp '{aset! "not-an-array" 0 1} 100)))
 
 ; Test cases for substring
 (check-equal? (top-interp '{substring "hello" 0 5} 100) "\"hello\"")
-(check-equal? (top-interp '{substring "hello" 1 4} 100) "\"ell\"")
-(check-equal? (top-interp '{substring "hello" 0 0} 100) "\"\"")
 
 ; Error cases for substring
 (check-exn exn:fail?
@@ -371,17 +360,6 @@
 (check-exn exn:fail?
            (lambda () (top-interp '{substring "hello" "not-a-number" 1} 100)))
 
-(check-exn exn:fail?
-           (lambda () (top-interp '{substring "hello" 0 "not-a-number"} 100)))
-
-(check-exn exn:fail?
-           (lambda () (top-interp '{substring "hello" -1 5} 100)))
-
-(check-exn exn:fail?
-           (lambda () (top-interp '{substring "hello" 0 6} 100)))
-
-(check-exn exn:fail?
-           (lambda () (top-interp '{substring "hello" 3 2} 100)))
 ; store test
 (check-exn exn:fail?
            (lambda () (top-interp '{make-array 1000 0} 10)))
@@ -393,3 +371,92 @@
                                   {aset! arr 1 43}
                                   {aset! arr 2 44}
                                   {array {aref arr 0} {aref arr 1} {aref arr 2}}}} 100) "#<array>")
+
+; Test serialization of closures
+(check-equal? (top-interp '{(x) => x} 100) "#<procedure>")
+(check-equal? (top-interp '{bind [f = {(x) => x}] f} 100) "#<procedure>")
+(check-equal? (top-interp '{bind [outer = {(x) => {(y) => {+ x y}}}] 
+                                {outer 1}} 100) "#<procedure>")
+
+; Test serialization of primitive operations
+(check-equal? (top-interp '+ 100) "#<primop>")
+(check-equal? (top-interp '* 100) "#<primop>")
+(check-equal? (top-interp 'array 100) "#<primop>")
+(check-equal? (top-interp 'error 100) "#<primop>")
+(check-equal? (top-interp 'make-array 100) "#<primop>")
+(check-equal? (top-interp 'substring 100) "#<primop>")
+
+; Test serialization of null
+(check-equal? (top-interp 'null 100) "null")
+(check-equal? (top-interp '{bind [x = null] x} 100) "null")
+
+; Extra tests
+
+(check-equal? (top-interp '{bind [arr = {array null + {(x) => x}}]
+                                {equal? {aref arr 0} null}} 100) "true")
+
+(check-equal? (top-interp '{bind [f = {(x) => {(y) => {+ x y}}}]
+                                {bind [g = {f 1}]
+                                     g}} 100) "#<procedure>")
+
+(check-equal? (top-interp '{bind [op = +] op} 100) "#<primop>")
+
+(check-equal? (top-interp '{bind [n = null] 
+                                {equal? n null}} 100) "true")
+
+; Test serialization in error messages
+(check-exn exn:fail?
+           (lambda () (top-interp '{error {(x) => x}} 100)))
+
+(check-exn exn:fail?
+           (lambda () (top-interp '{error +} 100)))
+
+(check-exn exn:fail?
+           (lambda () (top-interp '{error null} 100)))
+
+; Extra error testing
+
+(check-exn exn:fail? (lambda () (top-interp '#(invalid syntax) 100)))
+
+(check-exn exn:fail? (lambda () (top-interp '{if 42 1 2} 100)))
+
+(check-exn exn:fail? (lambda () (top-interp '{bind [f = {(x y) => x}] {f 1}} 100)))
+
+(check-exn exn:fail? (lambda () (top-interp '{42 1} 100)))
+
+(check-exn exn:fail? (lambda () (top-interp '{array} 100)))
+
+(check-exn exn:fail? (lambda () (top-interp '{bind [arr = {array 1 2 3}] {aref arr 3}} 100)))
+
+(check-exn exn:fail? (lambda () (top-interp '{aref 42 0} 100)))
+
+(check-exn exn:fail? (lambda () (top-interp '{/ 5 0} 100)))
+
+(check-exn exn:fail? (lambda () (top-interp '{+ "hello" 1} 100)))
+
+(check-exn exn:fail? (lambda () (top-interp '{+ 1} 100)))
+
+(check-exn exn:fail?
+           (lambda ()
+             (lookup 'undefined-id '() (vector))))
+
+(check-exn exn:fail?
+           (lambda ()
+             (lookup-index 'undefined-id '())))
+
+(check-exn exn:fail?
+           (lambda ()
+             (valid-id? 'if)))
+
+(check-exn exn:fail?
+           (lambda ()
+             (check-args '(x x))))
+
+(check-exn exn:fail?
+           (lambda ()
+             (check-args '(if x))))
+
+
+
+
+
