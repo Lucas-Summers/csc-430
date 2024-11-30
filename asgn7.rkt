@@ -68,18 +68,21 @@
    (list 'num-eq? (PrimV 'num-eq?) (LamT (list (NumT) (NumT)) (BoolT)))
    (list 'str-eq? (PrimV 'str-eq?) (LamT (list (StringT) (StringT)) (BoolT)))))
 
+; the base type environment installed with primitives
+(define base-tenv (foldl (lambda ([p : (List Symbol Value Ty)] [acc-tenv : TEnv])
+                           (extend-type-env (TBinding (car p) (caddr p)) acc-tenv))
+                         mt-env prims))
+
 ; given an s-expression, combines parsing, type-checking, evaluation, and serialization
 ; of AAQZ7 to produce a result as a string
 (define (top-interp [s : Sexp]) : String
   (let* ([store (make-initial-store 2000)]
-        [envs (install-prims prims store)]
-        [env (car envs)]
-        [tenv (cdr envs)]
+        [env (install-prims prims store)]
         [expr (parse s)])
-    (type-check expr tenv)
+    (type-check expr base-tenv)
     (serialize (interp expr env store))))
 
-; checks that the given AAQZ7 AST is of the correct type given a type environment
+; checks that the given AAQZ7 AST is of the correct type according to the given type environment
 (define (type-check [expr : ExprC] [tenv : TEnv]) : Ty
   (match expr
     [(NumV _) (NumT)]
@@ -233,16 +236,10 @@
 
 ; given the list of primatives (Symbol, Value, Type), allocates each primative on the given store,
 ; binding their locations in the store in a new top-level environment
-; as well as binding them in a new base type environment
-(define (install-prims [prims : (Listof (List Symbol Value Ty))] [store : (Vectorof Value)]) :
-  (Pairof Env TEnv)
-  (let ([env (foldl (lambda ([p : (List Symbol Value Ty)] [acc-env : Env])
-                      (add-to-store acc-env store (cons (car p) (cadr p))))
-                    mt-env prims)]
-        [tenv (foldl (lambda ([p : (List Symbol Value Ty)] [acc-tenv : TEnv])
-                      (extend-type-env (TBinding (car p) (caddr p)) acc-tenv))
-                    mt-env prims)])
-    (cons env tenv)))
+(define (install-prims [prims : (Listof (List Symbol Value Ty))] [store : (Vectorof Value)]) : Env
+  (foldl (lambda ([p : (List Symbol Value Ty)] [acc-env : Env])
+           (add-to-store acc-env store (cons (car p) (cadr p))))
+         mt-env prims))
 
 ; creates a store vector of the given size (with added room for primatives)
 (define (make-initial-store [memsize : Integer]) : (Vectorof Value)
@@ -305,11 +302,77 @@
                     (cons f (check-args r)))]))
 
 ; TEST CASES
-(top-interp '{{([x : str] [y : str]) => {str-eq? x y}} "test" "test"})
-(top-interp '{recbind [square-helper
+(check-equal? (top-interp '{{([x : str] [y : str]) => {str-eq? x y}} "test" "test"}) "true")
+; from assignment
+(check-equal? (top-interp '{recbind [square-helper
                        : {num -> num}
                        = {([n : num]) => {if {<= n 0} 0 {+ n {square-helper {- n 2}}}}}]
                       {bind [square
                              : {num -> num}
                              = {([n : num]) => {square-helper {- {* 2 n} 1}}}]
-                            {square 13}}})
+                            {square 13}}}) "169")
+(check-equal? (top-interp '{{([x : bool]) => x} true}) "true")
+(check-equal? (type-check (BoolV #t) '()) (BoolT))
+
+;error tests
+(check-exn exn:fail? (lambda () (top-interp '{if 42 true false})))
+(check-exn exn:fail? (lambda () (top-interp '{if true 42 "hello"})))
+(check-exn exn:fail? (lambda ()
+                       (top-interp '{recbind [f : {num -> num} = {([x : num]) => "wrong"}] 42})))
+(check-exn exn:fail? (lambda () (top-interp '{{([x : num]) => x} "string"})))
+(check-exn exn:fail? (lambda () (top-interp '{{([x : num] [y : num]) => x} 42})))
+(check-exn exn:fail? (lambda () (top-interp '{42 1})))
+(check-exn exn:fail? (lambda () (top-interp '(bind [x : num]))))
+
+(check-exn exn:fail? (lambda () (top-interp '(()))))
+(check-exn exn:fail? (lambda () (top-interp '(bind (x : invalid = 1) x))))
+(check-exn exn:fail? (lambda () (top-interp '(/ 1 0))))
+(check-exn exn:fail? (lambda () (top-interp '(/ 1 (- 1 1)))))
+;
+(check-exn exn:fail? (lambda () (top-interp '((([x : num] [x : num]) => 1) 1 2))))
+(check-exn exn:fail? (lambda () (top-interp '((([x : num] [y : num] [x : num]) => 1) 1 2 3))))
+
+(check-exn exn:fail? (lambda () (top-interp '(IdC 'x))))
+(check-exn exn:fail? (lambda () (lookup-index 'z '())))
+
+
+(check-exn exn:fail?
+           (lambda ()
+             (lookup 'undefined-id '() (vector))))
+(check-exn exn:fail?
+           (lambda ()
+             (lookup-index 'undefined-id '())))
+(check-exn exn:fail?
+           (lambda ()
+             (valid-id? 'if)))
+(check-exn exn:fail?
+           (lambda ()
+             (check-args '(x x))))
+(check-exn exn:fail?
+           (lambda ()
+             (check-args '(if x))))
+
+(check-equal? (handle-prims '/ (list (NumV 10) (NumV 2)) (make-vector 10 (NumV 0))) (NumV 5))
+(check-exn exn:fail? (lambda () (handle-prims '+ (list (NumV 5)) (make-vector 10 (NumV 0)))))
+(check-exn exn:fail? (lambda () (handle-prims '+ (list (NumV 5) (StringV "not-a-number"))
+                                              (make-vector 10 (NumV 0)))))
+(check-equal? (handle-prims 'num-eq? (list (NumV 5) (NumV 5)) (make-vector 10 (NumV 0))) (BoolV #t))
+(check-exn exn:fail? (lambda () (allocate (make-initial-store 10) (make-list 1000 (NumV 1)))))
+(check-equal? (lookup-index 'y (cons (Binding 'x 1) (cons (Binding 'y 2) '()))) 2)
+
+; interp error tests
+(check-exn exn:fail? (lambda ()
+                       (interp (IfC (NumV 1) (NumV 2) (NumV 3)) '() (make-initial-store 10))))
+(check-exn exn:fail? (lambda ()
+                       (interp (AppC (NumV 10) (list (NumV 1))) '() (make-initial-store 10))))
+(check-exn exn:fail? (lambda ()
+                       (interp (AppC (LamC (list (TBinding 'x (NumT))) (NumV 42))
+                                     (list (NumV 1) (NumV 2))) '() (make-initial-store 10))))
+
+;serialize tests
+(check-equal? (serialize (NumV 42)) "42")
+(check-equal? (serialize (BoolV #f)) "false")
+(check-equal? (serialize (BoolV #t)) "true")
+(check-equal? (serialize (StringV "Hello")) "\"Hello\"")
+(check-equal? (serialize (ClosV '() (NumV 42) '())) "#<procedure>")
+(check-equal? (serialize (PrimV 'add)) "#<primop>")
